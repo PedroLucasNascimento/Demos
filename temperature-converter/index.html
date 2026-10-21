@@ -1,37 +1,376 @@
-<!DOCTYPE html>
-<html lang="en-US" dir="ltr">
+<!doctype html>
+<html lang="pt-BR">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <link rel="icon" type="image/png" href="./icon512.png">
-    <link rel="stylesheet" href="./converter.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#102a43">
+    <meta name="application-name" content="Campo Elétrico">
+    <meta name="description" content="Levantamentos de campo de sistemas elétricos, com suporte offline.">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
     <link rel="manifest" href="./manifest.json">
-    <title>Temperature converter</title>
-    <meta name="application-name" content="Temperature converter">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="./converter.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+    <title>Campo Elétrico — Levantamento de campo</title>
   </head>
   <body>
-    <form id="converter">
-      <label for="input-temp">temperature</label>
-      <input type="text" id="input-temp" name="input-temp" value="20" />
-      <label for="input-unit">from</label>
-      <select id="input-unit" name="input-unit">
-        <option value="c" selected>Celsius</option>
-        <option value="f">Fahrenheit</option>
-        <option value="k">Kelvin</option>
-      </select>
-      <label for="output-unit">to</label>
-      <select id="output-unit" name="output-unit">
-        <option value="c">Celsius</option>
-        <option value="f" selected>Fahrenheit</option>
-        <option value="k">Kelvin</option>
-      </select>
-      <output name="output-temp" id="output-temp" for="input-temp input-unit output-unit">68 F</output>
-    </form>
-    <script src="./converter.js"></script>
+    <header class="app-header">
+      <div class="container app-header-inner">
+        <a class="app-brand" href="./" aria-label="Campo Elétrico - início">
+          <span class="brand-mark" aria-hidden="true">CE</span>
+          <span><strong>Campo Elétrico</strong><small>Levantamento técnico</small></span>
+        </a>
+        <span id="save-status" class="save-status" role="status"><span class="status-dot"></span> Salvo neste dispositivo</span>
+      </div>
+    </header>
+
+    <main class="container app-main">
+      <section id="home-screen" aria-labelledby="home-title">
+        <div class="home-heading">
+          <div>
+            <p class="eyebrow">Área de trabalho</p>
+            <h1 id="home-title">Levantamentos de campo</h1>
+            <p class="text-secondary mb-0">Crie e continue os levantamentos armazenados neste dispositivo.</p>
+          </div>
+          <button id="start-survey-button" class="btn btn-primary btn-lg" type="button">＋ Iniciar Novo Levantamento</button>
+        </div>
+        <div id="saved-surveys" class="saved-surveys" aria-live="polite"></div>
+        <div id="home-empty" class="empty-home">
+          <div class="empty-icon" aria-hidden="true">⌁</div>
+          <h2>Nenhum levantamento salvo</h2>
+          <p>Quando iniciar um levantamento, ele ficará disponível aqui para continuar depois.</p>
+        </div>
+      </section>
+
+      <section id="wizard-screen" hidden aria-labelledby="wizard-title">
+        <div class="wizard-header">
+          <div>
+            <button id="back-home-button" class="btn btn-link back-link" type="button">← Todos os levantamentos</button>
+            <p class="eyebrow mt-3 mb-1">Novo levantamento de campo</p>
+            <h1 id="wizard-title">Dados do serviço</h1>
+          </div>
+          <span id="wizard-work-number" class="work-number-badge"></span>
+        </div>
+
+        <nav class="wizard-steps" aria-label="Etapas do levantamento">
+          <button id="step-tab-1" class="wizard-step active" type="button" aria-current="step">
+            <span class="step-number">1</span><span><strong>Capa do serviço</strong><small>Cliente, escopo e SEs</small></span>
+          </button>
+          <span class="step-connector" aria-hidden="true"></span>
+          <button id="step-tab-2" class="wizard-step" type="button" disabled>
+            <span class="step-number">2</span><span><strong>SEs e painéis</strong><small>Dados de campo e fotos</small></span>
+          </button>
+        </nav>
+
+        <form id="service-form" novalidate>
+          <section id="step-1" class="wizard-panel" aria-labelledby="step-1-title">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Passo 1 de 2</p><h2 id="step-1-title">Capa do serviço</h2><p>Informe os dados gerais e selecione os estudos previstos para este levantamento.</p></div>
+            </div>
+            <div class="card section-card">
+              <div class="card-body p-4">
+                <h3 class="form-section-title">Identificação do serviço</h3>
+                <div class="row g-3">
+                  <div class="col-md-5">
+                    <label for="obra-numero" class="form-label">Número da obra <span class="text-danger">*</span></label>
+                    <input id="obra-numero" name="numero" class="form-control" data-service-field="numero" maxlength="60" required>
+                    <div class="invalid-feedback">Informe o número da obra.</div>
+                  </div>
+                  <div class="col-md-7">
+                    <label for="obra-cliente" class="form-label">Cliente <span class="text-danger">*</span></label>
+                    <input id="obra-cliente" name="cliente" class="form-control" data-service-field="cliente" maxlength="160" required>
+                    <div class="invalid-feedback">Informe o nome do cliente.</div>
+                  </div>
+                  <div class="col-12">
+                    <label for="obra-nome" class="form-label">Nome ou descrição do serviço</label>
+                    <input id="obra-nome" name="nomeServico" class="form-control" data-service-field="nomeServico" maxlength="180" placeholder="Ex.: Adequação elétrica da planta industrial">
+                  </div>
+                </div>
+
+                <hr class="section-divider">
+                <fieldset>
+                  <legend class="form-section-title">Escopo do serviço <span class="text-danger">*</span></legend>
+                  <p class="form-hint">Selecione todos os estudos que fazem parte do levantamento.</p>
+                  <div class="scope-grid">
+                    <label class="scope-option"><input id="escopo-curto-circuito" class="form-check-input" type="checkbox" name="escopoServico" value="Curto-circuito" data-scope><span>Curto-circuito</span></label>
+                    <label class="scope-option"><input id="escopo-coordenacao-seletividade" class="form-check-input" type="checkbox" name="escopoServico" value="Coordenação e Seletividade" data-scope><span>Coordenação e Seletividade</span></label>
+                    <label class="scope-option"><input id="escopo-energia-incidente" class="form-check-input" type="checkbox" name="escopoServico" value="Energia Incidente" data-scope><span>Energia Incidente</span></label>
+                    <label class="scope-option"><input id="escopo-fluxo-potencia" class="form-check-input" type="checkbox" name="escopoServico" value="Fluxo de Potência" data-scope><span>Fluxo de Potência</span></label>
+                    <label class="scope-option"><input id="escopo-fluxo-harmonicos" class="form-check-input" type="checkbox" name="escopoServico" value="Fluxo de Harmônicos" data-scope><span>Fluxo de Harmônicos</span></label>
+                    <label class="scope-option"><input id="escopo-partida-motores" class="form-check-input" type="checkbox" name="escopoServico" value="Partida de Motores" data-scope><span>Partida de Motores</span></label>
+                    <label class="scope-option"><input id="escopo-saturacao-tcs" class="form-check-input" type="checkbox" name="escopoServico" value="Saturação de TCs" data-scope><span>Saturação de TCs</span></label>
+                    <label class="scope-option"><input id="escopo-outros" class="form-check-input" type="checkbox" name="escopoServico" value="Outros" data-scope><span>Outros</span></label>
+                  </div>
+                  <div id="other-scope-field" class="mt-3" hidden>
+                    <label for="outros-escopos" class="form-label">Descreva outros escopos</label>
+                    <input id="outros-escopos" class="form-control" data-service-field="outrosEscopos" maxlength="300" placeholder="Informe os estudos adicionais">
+                  </div>
+                  <div id="scope-feedback" class="text-danger small mt-2" hidden>Selecione pelo menos um escopo do serviço.</div>
+                </fieldset>
+
+                <fieldset class="mt-4">
+                  <legend class="form-section-title">Outros itens do escopo do serviço</legend>
+                  <div class="scope-grid">
+                    <label class="scope-option"><input id="escopo-reles-inteligentes" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Ajustes dos Relés Inteligentes" data-additional-scope><span>Ajustes dos Relés Inteligentes</span></label>
+                    <label class="scope-option"><input id="escopo-paineis-baixa-tensao" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Painéis de baixa tensão (QD/QDL/QL)" data-additional-scope><span>Painéis de baixa tensão (QD/QDL/QL)</span></label>
+                  </div>
+                </fieldset>
+
+                <hr class="section-divider">
+                <div class="row align-items-end g-3">
+                  <div class="col-md-6">
+                    <label for="quantidade-ses" class="form-label">Quantidade de subestações (SEs) <span class="text-danger">*</span></label>
+                    <input id="quantidade-ses" type="number" class="form-control" data-service-field="quantidadeSEs" min="1" max="30" step="1" required>
+                    <div class="form-text">Você poderá nomear cada SE e definir quantos painéis ela possui no próximo passo.</div>
+                  </div>
+                  <div class="col-12">
+                    <label for="obra-observacoes" class="form-label">Observações, informações adicionais ou notas</label>
+                    <textarea id="obra-observacoes" class="form-control" data-service-field="observacoes" rows="3" maxlength="2000"></textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="wizard-actions justify-content-end">
+              <button id="step-1-next" class="btn btn-primary" type="button">Continuar para SEs e painéis <span aria-hidden="true">→</span></button>
+            </div>
+          </section>
+
+          <section id="step-2" class="wizard-panel" aria-labelledby="step-2-title" hidden>
+            <div class="panel-heading panel-heading-row">
+              <div><p class="eyebrow">Passo 2 de 2</p><h2 id="step-2-title">Gestão de SEs e painéis</h2><p>Adicione os painéis de cada subestação e registre os dados solicitados em campo.</p></div>
+              <button id="add-se-button" class="btn btn-outline-primary" type="button">＋ Adicionar SE</button>
+            </div>
+            <div id="substation-list" class="substation-list"></div>
+            <div class="wizard-actions justify-content-between">
+              <button id="step-2-back" class="btn btn-outline-secondary" type="button">← Voltar à capa</button>
+              <button id="finish-survey-button" class="btn btn-primary" type="button">Salvar levantamento</button>
+            </div>
+          </section>
+        </form>
+      </section>
+      <div id="app-alert" class="app-alert" role="status" aria-live="polite"></div>
+    </main>
+
+    <template id="substation-template">
+      <article class="substation-card card">
+        <div class="card-header substation-card-header">
+          <div class="d-flex align-items-center gap-3">
+            <span class="substation-icon" aria-hidden="true">⌂</span>
+            <button class="substation-collapse-toggle" type="button" data-bs-toggle="collapse" aria-expanded="true">
+              <span class="eyebrow">Subestação</span><span class="substation-title"></span>
+            </button>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary collapse-label" type="button" data-bs-toggle="collapse" aria-expanded="true">Minimizar</button>
+            <button class="btn btn-sm btn-outline-danger remove-se-button" type="button">Remover SE</button>
+          </div>
+        </div>
+        <div class="collapse show substation-collapse">
+          <div class="card-body">
+          <section class="se-section">
+            <h4 class="form-section-title">Informações da Subestação</h4>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label se-name-label">Nome da SE</label>
+                <input class="form-control se-name-input" data-se-field="nome" maxlength="100" placeholder="Ex.: SE Principal">
+              </div>
+              <fieldset class="col-md-6 same-bus-field" hidden>
+                <legend class="form-label">Existe a possibilidade dos transformadores alimentarem o mesmo barramento?</legend>
+                <div class="form-check form-check-inline"><input class="form-check-input same-bus-input" type="radio" value="sim" data-se-field="podeAlimentarMesmoBarramento"><label class="form-check-label">Sim</label></div>
+                <div class="form-check form-check-inline"><input class="form-check-input same-bus-input" type="radio" value="nao" data-se-field="podeAlimentarMesmoBarramento"><label class="form-check-label">Não</label></div>
+                <fieldset class="operation-modes mt-2" hidden>
+                  <legend class="form-label">Modo de operação (selecione todas as opções aplicáveis)</legend>
+                  <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="Paralelo" data-mode-option><label class="form-check-label">Paralelo</label></div>
+                  <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="L" data-mode-option><label class="form-check-label">L</label></div>
+                  <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="Duplo I" data-mode-option><label class="form-check-label">Duplo I</label></div>
+                  <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="Paralelismo Momentâneo" data-mode-option><label class="form-check-label">Paralelismo Momentâneo</label></div>
+                </fieldset>
+              </fieldset>
+              <div class="col-12">
+                <label class="form-label transformer-count-label">Quantidade de transformadores na SE</label>
+                <input class="form-control transformer-count-input" type="number" min="0" max="20" step="1" data-se-field="quantidadeTransformadores">
+              </div>
+              <div class="col-12 transformer-list"></div>
+              <div class="col-12">
+                <fieldset class="mb-3">
+                  <legend class="form-label">Possui demais equipamentos de média tensão (inversores, reatores etc.)?</legend>
+                  <div class="form-check form-check-inline"><input class="form-check-input equipment-answer" type="radio" value="sim" data-se-field="possuiDemaisEquipamentos"><label class="form-check-label">Sim</label></div>
+                  <div class="form-check form-check-inline"><input class="form-check-input equipment-answer" type="radio" value="nao" data-se-field="possuiDemaisEquipamentos"><label class="form-check-label">Não</label></div>
+                </fieldset>
+                <div class="equipment-details" hidden>
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                  <h5 class="form-section-title mb-0">Demais equipamentos de média tensão</h5>
+                  <button class="btn btn-sm btn-outline-primary add-equipment-button" type="button">＋ Adicionar equipamento</button>
+                </div>
+                <p class="form-hint">Informe o nome de cada inversor, reator ou outro equipamento.</p>
+                <div class="equipment-list"></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label se-observations-label">Observações, informações adicionais ou notas</label>
+                <textarea class="form-control se-observations-input" data-se-field="observacoes" rows="3" maxlength="2000"></textarea>
+              </div>
+            </div>
+          </section>
+          <hr class="section-divider">
+          <div class="d-flex align-items-end justify-content-between gap-3 mb-3">
+            <div><h4 class="form-section-title mb-1">Painéis desta SE</h4><label class="form-label se-count-label mb-0">Quantidade de painéis</label></div>
+            <input class="form-control se-panel-count" type="number" min="0" max="60" step="1" data-se-field="quantidadePaineis" style="max-width: 120px">
+          </div>
+          <div class="panel-list"></div>
+          <button class="btn btn-sm btn-outline-primary add-panel-button" type="button">＋ Adicionar Painel</button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <template id="panel-template">
+      <article class="panel-card card">
+        <div class="panel-card-heading">
+          <div class="d-flex align-items-center gap-2">
+            <span class="panel-icon" aria-hidden="true">▦</span>
+            <button class="panel-collapse-toggle" type="button" data-bs-toggle="collapse" aria-expanded="true"><span class="panel-title"></span></button>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary collapse-label" type="button" data-bs-toggle="collapse" aria-expanded="true">Minimizar</button>
+            <button class="btn btn-sm btn-link text-danger remove-panel-button" type="button">Remover painel</button>
+          </div>
+        </div>
+        <div class="collapse show panel-collapse">
+        <div class="panel-card-body">
+        <div class="row g-3">
+          <div class="col-md-7">
+            <label class="form-label panel-name-label">Nome do painel <span class="text-danger">*</span></label>
+            <input class="form-control panel-name-input" data-panel-field="nome" maxlength="100" placeholder="Ex.: QGBT-01" required>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label panel-type-label">Tipo de painel</label>
+            <select class="form-select panel-type-select" data-panel-field="tipo">
+              <option value="">Selecione...</option>
+              <option value="CCM">CCM</option>
+              <option value="QGBT de MT">QGBT de MT</option>
+              <option value="QGBT de BT">QGBT de BT</option>
+              <option value="QD/QDL/QL/PNL">QD/QDL/QL/PNL</option>
+              <option value="Painel de Inversor">Painel de Inversor</option>
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label panel-voltage-label">Nível de tensão do painel</label>
+            <select class="form-select panel-voltage-select" data-panel-field="nivelTensao">
+              <option value="">Selecione...</option>
+              <option value="380V">380V</option>
+              <option value="440V">440V</option>
+              <option value="4.16kV">4.16kV</option>
+              <option value="13.8kV">13.8kV</option>
+              <option value="34.5kV">34.5kV</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
+          <div class="col-12 other-voltage-field" hidden>
+            <label class="form-label other-voltage-label">Informe o nível de tensão</label>
+            <input class="form-control other-voltage-input" data-panel-field="outroNivelTensao" maxlength="50" placeholder="Ex.: 6.6kV">
+          </div>
+          <div class="col-12"><label class="form-label panel-observations-label">Observações, informações adicionais ou notas</label><textarea class="form-control panel-observations-input" data-panel-field="observacoes" rows="2" maxlength="2000"></textarea></div>
+        </div>
+
+        <div class="photo-grid mt-4">
+          <div class="photo-field">
+            <span class="form-label d-block">Foto de identificação do painel (nome/tag)</span>
+            <label class="btn btn-sm btn-outline-secondary photo-button"><span data-panel-photo-label="identificacao">＋ Tirar foto de identificação</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_identificacao"></label>
+            <div class="photo-preview" data-preview-key="foto_identificacao"></div>
+          </div>
+          <fieldset class="photo-field">
+            <legend class="form-label d-block">Possui unifilar na porta?</legend>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" value="sim" data-panel-field="possuiUnifilar">
+              <label class="form-check-label">Sim</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" value="nao" data-panel-field="possuiUnifilar">
+              <label class="form-check-label">Não</label>
+            </div>
+            <div class="conditional-photo" data-condition="unifilar" hidden>
+            <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto do Unifilar</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_unifilar"></label>
+              <div class="photo-preview" data-preview-key="foto_unifilar"></div>
+            </div>
+          </fieldset>
+          <div class="photo-field">
+            <span class="form-label d-block">Foto completa do painel (cubículos, colunas e gavetas)</span>
+            <label class="btn btn-sm btn-outline-secondary photo-button"><span data-panel-photo-label="completo">＋ Tirar foto completa do painel</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_painel_completo"></label>
+            <div class="photo-preview" data-preview-key="foto_painel_completo"></div>
+          </div>
+        </div>
+
+        <section class="short-circuit-section mt-4" hidden>
+          <div class="short-circuit-heading"><span class="short-circuit-mark" aria-hidden="true">ϟ</span><div><h5>Informações de Curto-circuito</h5><p>Exibidas porque Curto-circuito está selecionado no escopo do serviço.</p></div></div>
+          <div class="row g-3">
+            <fieldset class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" id="nao-foi-possivel-obter-suportabilidade" type="checkbox" data-short-field="naoFoiPossivelObterSuportabilidade">
+                <label class="form-check-label" for="nao-foi-possivel-obter-suportabilidade">Não foi possível obter suportabilidade</label>
+              </div>
+              <div class="supportability-values row g-3 mt-1">
+                <div class="col-md-6"><label class="form-label">Suportabilidade térmica do painel (kA / 1s)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeTermicaPainel" placeholder="Ex.: 25 kA / 1s"></div>
+                <div class="col-md-6"><label class="form-label">Suportabilidade dinâmica do painel (kA de pico)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeDinamicaPainel" placeholder="Ex.: 63 kA de pico"></div>
+                <div class="col-md-6"><label class="form-label">Suportabilidade térmica do disjuntor (kA / 1s)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeTermicaDisjuntor" placeholder="Ex.: 25 kA / 1s"></div>
+                <div class="col-md-6"><label class="form-label">Suportabilidade dinâmica do disjuntor (kA de pico)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeDinamicaDisjuntor" placeholder="Ex.: 63 kA de pico"></div>
+              </div>
+              <div class="row g-3 mt-1">
+                <div class="support-photo-field col-md-6">
+                <label class="form-label d-block">Foto da suportabilidade do painel <span class="text-danger support-photo-required">*</span></label>
+                <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do painel</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidades"></label>
+                <div class="photo-preview" data-preview-key="foto_suportabilidades"></div>
+              </div>
+                <div class="support-breaker-photo-field col-md-6">
+                  <label class="form-label d-block">Foto da suportabilidade do disjuntor <span class="text-danger">*</span></label>
+                  <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do disjuntor</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
+                  <div class="photo-preview" data-preview-key="foto_suportabilidade_disjuntor"></div>
+                </div>
+              </div>
+              <div class="support-photo-warning alert alert-danger py-2 mt-2 mb-0" hidden>As fotos da suportabilidade do painel e do disjuntor são obrigatórias para salvar.</div>
+            </fieldset>
+            <section class="col-12 medium-voltage-motors" hidden>
+              <h6 class="form-section-title">Motores de média tensão</h6>
+              <fieldset>
+                <legend class="form-label">Este painel alimenta motores de MT?</legend>
+                <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="possuiMotoresMT"><label class="form-check-label">Sim</label></div>
+                <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="possuiMotoresMT"><label class="form-check-label">Não</label></div>
+              </fieldset>
+              <div class="motor-photo-field mt-2" hidden><label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto das placas dos motores MT</span><input class="photo-input" type="file" accept="image/*" data-photo-key="fotos_placas_motores_mt" multiple></label><div class="photo-preview" data-preview-key="fotos_placas_motores_mt"></div></div>
+            </section>
+            <fieldset class="col-12">
+              <legend class="form-label">É possível obter informações dos cabos para este painel?</legend>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="informacoesCabosDisponiveis"><label class="form-check-label">Sim</label></div>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="informacoesCabosDisponiveis"><label class="form-check-label">Não</label></div>
+              <div class="cable-fields row g-3 mt-1" hidden>
+                <div class="col-md-4"><label class="form-label">Distância dos cabos</label><input class="form-control" data-short-field="distanciaCabos" placeholder="Ex.: 45 m"></div>
+                <div class="col-md-4"><label class="form-label">Bitola dos cabos</label><input class="form-control" data-short-field="bitolaCabos" placeholder="Ex.: 3 x 240 mm²"></div>
+                <div class="col-md-4"><label class="form-label">Quantidade de cabos</label><input class="form-control" data-short-field="quantidadeCabos" placeholder="Ex.: 2 por fase"></div>
+              </div>
+            </fieldset>
+          </div>
+        </section>
+        <section class="coordination-section mt-4" hidden>
+          <h5 class="form-section-title">Estudo de Seletividade e Coordenação</h5>
+          <div class="coordination-fields"></div>
+        </section>
+        <section class="incident-energy-section mt-4" hidden>
+          <h5 class="form-section-title">Estudo de Energia Incidente</h5>
+          <div class="incident-energy-fields"></div>
+        </section>
+        </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="./app.js" defer></script>
     <script>
-      if('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js', { scope: './' });
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .catch(error => console.error('Não foi possível registrar o service worker.', error)));
       }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous" defer></script>
   </body>
 </html>

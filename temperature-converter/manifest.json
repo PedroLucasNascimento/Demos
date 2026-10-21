@@ -1,17 +1,20 @@
 {
-  "lang": "en-us",
-  "name": "Temperature converter",
-  "short_name": "Temperature converter",
-  "description": "A basic temperature converter application that can convert to and from Celsius, Kelvin, and Fahrenheit",
+  "lang": "pt-BR",
+  "name": "Campo Elétrico — Levantamento de campo",
+  "short_name": "Campo Elétrico",
+  "description": "Cadastro offline de obras, escopos, painéis, subestações, parâmetros e fotos para estudos elétricos.",
   "start_url": "./",
-  "background_color": "#2f3d58",
-  "theme_color": "#2f3d58",
+  "background_color": "#f5f7fa",
+  "theme_color": "#102a43",
   "orientation": "any",
   "display": "standalone",
   "icons": [
-      {
-          "src": "./icon512.png",
-          "sizes": "512x512"
-      }
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any",
+      "density": "any"
+    }
   ]
 }
