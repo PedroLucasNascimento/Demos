@@ -6,7 +6,16 @@ const MAX_PANELS_PER_SE = 60;
 const MAX_TRANSFORMERS_PER_SE = 20;
 const MAX_EQUIPMENT_PER_SE = 30;
 const MAX_PROTECTION_DEVICES_PER_PANEL = 60;
+const MAX_PANEL_COLUMNS = 60;
 const MAX_PHOTO_SIZE = 12 * 1024 * 1024;
+const msalConfig = {
+  auth: {
+    clientId: '',
+    authority: 'https://login.microsoftonline.com/organizations',
+    redirectUri: window.location.origin + window.location.pathname
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+};
 
 const SUBSTATION_TEMPLATE = document.getElementById('substation-template');
 const PANEL_TEMPLATE = document.getElementById('panel-template');
@@ -47,6 +56,7 @@ const modeloLevantamento = {
     possuiDemaisEquipamentos: null,
     demaisEquipamentos: [],
     observacoes: '',
+    foto_observacao_se: [],
     paineis: [{
       id: null,
       dadosPainel: {
@@ -54,14 +64,14 @@ const modeloLevantamento = {
         tipo: '',
         nivelTensao: '',
         outroNivelTensao: '',
+        quantidadeColunas: 0,
         possuiUnifilar: null,
         observacoes: '',
         curtoCircuito: {
-          suportabilidadeTermicaPainel: '',
-          suportabilidadeDinamicaPainel: '',
-          suportabilidadeTermicaDisjuntor: '',
-          suportabilidadeDinamicaDisjuntor: '',
-          naoFoiPossivelObterSuportabilidade: false,
+          suportabilidadePainelDisponivel: null,
+          justificativaSuportabilidadePainel: '',
+          suportabilidadeDisjuntorDisponivel: null,
+          justificativaSuportabilidadeDisjuntor: '',
           possuiMotoresMT: null,
           informacoesCabosDisponiveis: null,
           distanciaCabos: '',
@@ -88,8 +98,8 @@ const modeloLevantamento = {
           releArcoTrip: null,
           possuiCompartimentoUnico: null,
           compartimentos: {
-            entrada: { altura: '', largura: '', comprimento: '', fotos: [], disjuntorExtraivel: null },
-            menor: { altura: '', largura: '', comprimento: '', fotos: [], disjuntorExtraivel: null }
+            entrada: { altura: '', largura: '', profundidade: '', fotos: [], disjuntorExtraivel: null },
+            menor: { altura: '', largura: '', profundidade: '', fotos: [], disjuntorExtraivel: null }
           }
         },
         fotos: {
@@ -98,7 +108,8 @@ const modeloLevantamento = {
           foto_painel_completo: [],
           foto_suportabilidades: [],
           foto_suportabilidade_disjuntor: [],
-          fotos_placas_motores_mt: []
+          fotos_placas_motores_mt: [],
+          fotos_colunas: []
         }
       }
     }]
@@ -113,6 +124,7 @@ let savedSurveys = [];
 let currentStep = 1;
 let saveTimer;
 let alertTimer;
+let msalInstance;
 
 function clone(value) {
   return structuredClone(value);
@@ -200,6 +212,7 @@ function normalizeSurvey(survey) {
     const legacyResistorAnswer = substation.aterramentoTrafoPorResistor
       ?? legacyShort.aterramentoTrafoPorResistor ?? null;
     substation.observacoes ||= '';
+    substation.foto_observacao_se = asPhotoArray(substation.foto_observacao_se);
     substation.possuiDemaisEquipamentos ??= null;
     const legacyResistorPhotos = substation.fotosResistor || {
       placa: legacyPhotos('foto_placa_resistor'),
@@ -253,17 +266,42 @@ function normalizeSurvey(survey) {
       const oldShort = data.curtoCircuito || {};
       data.nome ||= '';
       data.tipo ||= '';
+      const legacyPanelTypes = {
+        'QGBT de MT': 'QGBT',
+        'QGBT de BT': 'QGBT',
+        'QD/QDL/QL/PNL': 'PNL/QDL/QL'
+      };
+      data.tipo = legacyPanelTypes[data.tipo] || data.tipo;
       data.nivelTensao ||= '';
+      const legacyPanelVoltages = {
+        '34.5kV': '34.5 kV',
+        '13.8kV': '13.8 kV',
+        '6.9kV': '6.9 kV',
+        '4.16kV': '4.16 kV'
+      };
+      if (legacyPanelVoltages[data.nivelTensao]) data.nivelTensao = legacyPanelVoltages[data.nivelTensao];
+      if (data.nivelTensao === '440V') {
+        data.nivelTensao = 'Outro';
+        data.outroNivelTensao ||= '440V';
+      }
       data.outroNivelTensao ||= '';
+      data.quantidadeColunas = Math.max(0, Math.min(
+        MAX_PANEL_COLUMNS,
+        Number(data.quantidadeColunas) || data.fotos?.fotos_colunas?.length || 0
+      ));
       data.possuiUnifilar ??= null;
       data.observacoes ||= '';
       data.curtoCircuito = {
-        suportabilidadeTermicaPainel: oldShort.suportabilidadeTermicaPainel || oldShort.suportabilidadePaineisKA || '',
-        suportabilidadeDinamicaPainel: oldShort.suportabilidadeDinamicaPainel || '',
-        suportabilidadeTermicaDisjuntor: oldShort.suportabilidadeTermicaDisjuntor || oldShort.suportabilidadeDisjuntoresKA || '',
-        suportabilidadeDinamicaDisjuntor: oldShort.suportabilidadeDinamicaDisjuntor || '',
-        naoFoiPossivelObterSuportabilidade: Boolean(oldShort.naoFoiPossivelObterSuportabilidade
-          ?? (oldShort.fotoSuportabilidadesTirada === 'nao')),
+        suportabilidadePainelDisponivel: oldShort.suportabilidadePainelDisponivel
+          ?? (asPhotoArray(data.fotos?.foto_suportabilidades).length
+            ? 'sim'
+            : (oldShort.naoFoiPossivelObterSuportabilidade ? 'nao' : null)),
+        justificativaSuportabilidadePainel: oldShort.justificativaSuportabilidadePainel || '',
+        suportabilidadeDisjuntorDisponivel: oldShort.suportabilidadeDisjuntorDisponivel
+          ?? (asPhotoArray(data.fotos?.foto_suportabilidade_disjuntor).length
+            ? 'sim'
+            : (oldShort.naoFoiPossivelObterSuportabilidade ? 'nao' : null)),
+        justificativaSuportabilidadeDisjuntor: oldShort.justificativaSuportabilidadeDisjuntor || '',
         possuiMotoresMT: oldShort.possuiMotoresMT ?? null,
         informacoesCabosDisponiveis: oldShort.informacoesCabosDisponiveis ?? null,
         distanciaCabos: oldShort.distanciaCabos || '',
@@ -327,8 +365,8 @@ function normalizeSurvey(survey) {
         releArcoTrip: null,
         possuiCompartimentoUnico: null,
         compartimentos: {
-          entrada: { altura: '', largura: '', comprimento: '', fotos: [], disjuntorExtraivel: null },
-          menor: { altura: '', largura: '', comprimento: '', fotos: [], disjuntorExtraivel: null }
+          entrada: { altura: '', largura: '', profundidade: '', fotos: [], disjuntorExtraivel: null },
+          menor: { altura: '', largura: '', profundidade: '', fotos: [], disjuntorExtraivel: null }
         },
         ...incident
       };
@@ -339,19 +377,29 @@ function normalizeSurvey(survey) {
         data.energiaIncidente.compartimentos[name] = {
           altura: '',
           largura: '',
-          comprimento: '',
+          profundidade: '',
           fotos: [],
           disjuntorExtraivel: null,
           ...compartment,
           fotos: asPhotoArray(compartment.fotos)
         };
+        if (!data.energiaIncidente.compartimentos[name].profundidade) {
+          data.energiaIncidente.compartimentos[name].profundidade =
+            data.energiaIncidente.compartimentos[name].comprimento || '';
+        }
+        delete data.energiaIncidente.compartimentos[name].comprimento;
       });
       data.fotos = { ...clone(modeloLevantamento.subestacoes[0].paineis[0].dadosPainel.fotos), ...data.fotos };
-      Object.keys(data.fotos).forEach(key => { data.fotos[key] = asPhotoArray(data.fotos[key]); });
+      Object.keys(data.fotos).filter(key => key !== 'fotos_colunas')
+        .forEach(key => { data.fotos[key] = asPhotoArray(data.fotos[key]); });
+      data.fotos.fotos_colunas = Array.isArray(data.fotos.fotos_colunas)
+        ? data.fotos.fotos_colunas.map(asPhotoArray)
+        : [];
+      data.fotos.fotos_colunas = resizeRecords(data.fotos.fotos_colunas, data.quantidadeColunas, () => []);
       if (data.fotos.fotos_placas_motores_mt.length === 0 && data.fotos.foto_placa_motor_mt) {
         data.fotos.fotos_placas_motores_mt = asPhotoArray(data.fotos.foto_placa_motor_mt);
       }
-      ['foto_placa_trafo', 'foto_placa_resistor', 'foto_painel_resistor', 'fotos_demais_equipamentos', 'foto_placa_motor_mt']
+      ['foto_placa_trafo', 'foto_placa_resistor', 'foto_painel_resistor', 'fotos_outros_equipamentos', 'foto_placa_motor_mt']
         .forEach(key => { delete data.fotos[key]; });
     });
   });
@@ -488,19 +536,21 @@ function createSurveyWorkbook(survey) {
     'Quantidade de painéis daquela SE',
     'Possibilidade de Alimentação do Mesmo Barramento',
     'Modo de Operação',
-    'Demais Equipamentos de Média Tensão',
+    'Outros Equipamentos de Média Tensão',
     'Observações da SE'
   ];
   const panelHeaders = [
     'Nome da SE',
     'Nome do Painel',
     'Nível de Tensão',
-    'Suportabilidade Térmica',
-    'Suportabilidade Dinâmica',
-    'Suportabilidade Térmica do Disjuntor',
-    'Suportabilidade Dinâmica do Disjuntor',
-    'Não foi possível obter suportabilidade',
-    'Foto da Suportabilidade Capturada',
+    'Suportabilidades do painel obtidas?',
+    'Justificativa — suportabilidades do painel',
+    'Foto da suportabilidade do painel capturada',
+    'Suportabilidades do disjuntor de entrada obtidas?',
+    'Justificativa — suportabilidades do disjuntor de entrada',
+    'Foto da suportabilidade do disjuntor capturada',
+    'Quantidade de colunas',
+    'Fotos das colunas capturadas',
     'Tipo de Painel',
     'Observações do Painel'
   ];
@@ -526,9 +576,9 @@ function createSurveyWorkbook(survey) {
     'Tipo de Painel',
     'Nível de Tensão',
     'Compartimento',
-    'Altura',
-    'Largura',
-    'Comprimento',
+    'Altura (mm)',
+    'Largura (mm)',
+    'Profundidade (mm)',
     'Disjuntor é extraível?',
     'Possui relé de arco?',
     'Tem foto do relé de arco?',
@@ -541,7 +591,7 @@ function createSurveyWorkbook(survey) {
     'Quantidade de painéis daquela SE': substation.paineis.length,
     'Possibilidade de Alimentação do Mesmo Barramento': substation.podeAlimentarMesmoBarramento,
     'Modo de Operação': substation.modoOperacaoTrafos.join(', '),
-    'Demais Equipamentos de Média Tensão': substation.demaisEquipamentos.map(item => item.nome).filter(Boolean).join('; '),
+    'Outros Equipamentos de Média Tensão': substation.demaisEquipamentos.map(item => item.nome).filter(Boolean).join('; '),
     'Observações da SE': substation.observacoes
   }));
   const transformers = survey.subestacoes.flatMap(substation => substation.transformadores.map(transformer => ({
@@ -558,12 +608,16 @@ function createSurveyWorkbook(survey) {
       'Nome da SE': substation.nome,
       'Nome do Painel': data.nome,
       'Nível de Tensão': panelVoltage(data),
-      'Suportabilidade Térmica': short.suportabilidadeTermicaPainel,
-      'Suportabilidade Dinâmica': short.suportabilidadeDinamicaPainel,
-      'Suportabilidade Térmica do Disjuntor': short.suportabilidadeTermicaDisjuntor,
-      'Suportabilidade Dinâmica do Disjuntor': short.suportabilidadeDinamicaDisjuntor,
-      'Não foi possível obter suportabilidade': short.naoFoiPossivelObterSuportabilidade ? 'Sim' : 'Não',
-      'Foto da Suportabilidade Capturada': data.fotos.foto_suportabilidades.length > 0 ? 'Sim' : 'Não',
+      'Suportabilidades do painel obtidas?': answerLabel(short.suportabilidadePainelDisponivel),
+      'Justificativa — suportabilidades do painel': short.justificativaSuportabilidadePainel,
+      'Foto da suportabilidade do painel capturada':
+        data.fotos.foto_suportabilidades.length > 0 ? 'Sim' : 'Não',
+      'Suportabilidades do disjuntor de entrada obtidas?': answerLabel(short.suportabilidadeDisjuntorDisponivel),
+      'Justificativa — suportabilidades do disjuntor de entrada': short.justificativaSuportabilidadeDisjuntor,
+      'Foto da suportabilidade do disjuntor capturada':
+        data.fotos.foto_suportabilidade_disjuntor.length > 0 ? 'Sim' : 'Não',
+      'Quantidade de colunas': data.quantidadeColunas,
+      'Fotos das colunas capturadas': data.fotos.fotos_colunas.some(photoDataExists) ? 'Sim' : 'Não',
       'Tipo de Painel': data.tipo,
       'Observações do Painel': data.observacoes
     };
@@ -607,9 +661,9 @@ function createSurveyWorkbook(survey) {
         'Tipo de Painel': data.tipo,
         'Nível de Tensão': panelVoltage(data),
         'Compartimento': name === 'entrada' ? 'Entrada' : 'Menor Gaveta',
-        'Altura': compartment.altura,
-        'Largura': compartment.largura,
-        'Comprimento': compartment.comprimento,
+        'Altura (mm)': compartment.altura,
+        'Largura (mm)': compartment.largura,
+        'Profundidade (mm)': compartment.profundidade,
         'Disjuntor é extraível?': answerLabel(compartment.disjuntorExtraivel),
         'Possui relé de arco?': answerLabel(incident.possuiReleArco),
         'Tem foto do relé de arco?': photoDataExists(incident.fotosReleArco) ? 'Sim' : 'Não',
@@ -706,7 +760,7 @@ function addPhotosToZip(zipFolder, photos, filenameBase) {
   });
 }
 
-async function exportarZipCompleto(survey) {
+async function gerarZipCompleto(survey) {
   if (!window.JSZip) {
     throw new Error('A biblioteca JSZip não foi carregada. Conecte-se à internet e tente novamente.');
   }
@@ -717,6 +771,7 @@ async function exportarZipCompleto(survey) {
 
   survey.subestacoes.forEach((substation, seIndex) => {
     const seFolder = workFolder.folder(safeArchiveName(substation.nome || `SE_${seIndex + 1}`));
+    addPhotosToZip(seFolder, substation.foto_observacao_se, 'Foto_Observacoes_Gerais_SE');
     substation.transformadores.forEach((transformer, transformerIndex) => {
       const transformerFolder = seFolder
         .folder('Transformadores')
@@ -748,6 +803,9 @@ async function exportarZipCompleto(survey) {
       Object.entries(photoNames).forEach(([key, filename]) => {
         addPhotosToZip(panelFolder, data.fotos[key], filename);
       });
+      data.fotos.fotos_colunas.forEach((photos, index) => {
+        addPhotosToZip(panelFolder, photos, `Foto_Coluna_${index + 1}`);
+      });
       const coordination = data.coordenacaoSeletividade;
       const coordinationFolder = panelFolder.folder('Seletividade_Coordenacao');
       coordination.relesProtecao.forEach((relay, index) => {
@@ -772,11 +830,131 @@ async function exportarZipCompleto(survey) {
   });
 
   const archive = await zip.generateAsync({ type: 'blob' });
-  downloadBlob(archive, `levantamento-completo-${safeArchiveName(survey.obra.numero || survey.obra.nomeServico)}.zip`);
   return {
+    archive,
     substations: survey.subestacoes.length,
     panels: survey.subestacoes.reduce((total, substation) => total + substation.paineis.length, 0),
     photos: Object.keys(zip.files).filter(path => !zip.files[path].dir && /\.(jpe?g|png|webp|gif)$/i.test(path)).length
+  };
+}
+
+async function exportarZipCompleto(survey) {
+  const result = await gerarZipCompleto(survey);
+  downloadBlob(result.archive, `levantamento-completo-${safeArchiveName(survey.obra.numero || survey.obra.nomeServico)}.zip`);
+  return {
+    substations: result.substations,
+    panels: result.panels,
+    photos: result.photos
+  };
+}
+
+function obterMsalInstance() {
+  if (!window.msal?.PublicClientApplication) {
+    throw new Error('A biblioteca MSAL não foi carregada. Conecte-se à internet e tente novamente.');
+  }
+  if (!msalConfig.auth.clientId.trim()) {
+    throw new Error('Configure o clientId da aplicação Microsoft Entra no app.js antes de conectar ao OneDrive.');
+  }
+  if (!msalInstance) msalInstance = new window.msal.PublicClientApplication(msalConfig);
+  return msalInstance;
+}
+
+async function conectarOneDrive() {
+  const instance = obterMsalInstance();
+  const scopes = ['Files.ReadWrite'];
+  const loginResult = await instance.loginPopup({ scopes });
+  if (!loginResult.account) throw new Error('A autenticação não identificou uma conta corporativa.');
+
+  try {
+    const tokenResult = await instance.acquireTokenSilent({ scopes, account: loginResult.account });
+    if (!tokenResult.accessToken) throw new Error('A autenticação não retornou um token de acesso.');
+    return tokenResult.accessToken;
+  } catch (error) {
+    const isInteractionRequired = typeof window.msal.InteractionRequiredAuthError === 'function'
+      && error instanceof window.msal.InteractionRequiredAuthError;
+    const interactionErrorCodes = ['interaction_required', 'consent_required', 'login_required'];
+    if (!isInteractionRequired && !interactionErrorCodes.includes(error.errorCode)) throw error;
+    const tokenResult = await instance.acquireTokenPopup({ scopes, account: loginResult.account });
+    if (!tokenResult.accessToken) throw new Error('A autenticação não retornou um token de acesso.');
+    return tokenResult.accessToken;
+  }
+}
+
+async function graphRequest(url, accessToken, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.headers || {})
+    }
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Microsoft Graph (${response.status}): ${errorBody || response.statusText}`);
+  }
+  return response;
+}
+
+async function garantirPastaOneDrive(accessToken, parentId, folderName) {
+  const graphRoot = 'https://graph.microsoft.com/v1.0/me/drive';
+  const childrenUrl = parentId
+    ? `${graphRoot}/items/${encodeURIComponent(parentId)}/children`
+    : `${graphRoot}/root/children`;
+  const createResponse = await fetch(childrenUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: folderName,
+      folder: {},
+      '@microsoft.graph.conflictBehavior': 'fail'
+    })
+  });
+  if (createResponse.ok) return (await createResponse.json()).id;
+  if (createResponse.status !== 409) {
+    const errorBody = await createResponse.text();
+    throw new Error(`Não foi possível criar a pasta no OneDrive (${createResponse.status}): ${errorBody || createResponse.statusText}`);
+  }
+
+  const escapedName = encodeURIComponent(folderName);
+  const existingUrl = parentId
+    ? `${graphRoot}/items/${encodeURIComponent(parentId)}:/${escapedName}`
+    : `${graphRoot}/root:/${escapedName}`;
+  const existing = await graphRequest(existingUrl, accessToken);
+  const folder = await existing.json();
+  if (!folder.id) throw new Error(`Não foi possível localizar a pasta "${folderName}" no OneDrive.`);
+  return folder.id;
+}
+
+async function uploadParaOneDrive(accessToken, levantamentoId) {
+  const survey = savedSurveys.find(item => item.id === levantamentoId);
+  if (!survey) throw new Error('O levantamento selecionado não está mais disponível neste dispositivo.');
+
+  const archiveData = await gerarZipCompleto(survey);
+  if (archiveData.archive.size > 250 * 1024 * 1024) {
+    throw new Error('O pacote ZIP excede o limite de 250 MB para upload direto ao OneDrive.');
+  }
+  const baseFolderId = await garantirPastaOneDrive(accessToken, null, 'Levantamentos_PWA');
+  const workFolderName = safeArchiveName(
+    [survey.obra.numero, survey.obra.cliente || survey.obra.nomeServico].filter(Boolean).join(' - ')
+  );
+  const workFolderId = await garantirPastaOneDrive(accessToken, baseFolderId, workFolderName);
+  const fileName = 'Pacote_Levantamento.zip';
+  const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workFolderId)}:/${encodeURIComponent(fileName)}:/content`;
+  const response = await graphRequest(uploadUrl, accessToken, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/zip' },
+    body: archiveData.archive
+  });
+  if (response.status !== 200 && response.status !== 201) {
+    throw new Error(`O OneDrive retornou um status inesperado (${response.status}).`);
+  }
+  return {
+    substations: archiveData.substations,
+    panels: archiveData.panels,
+    photos: archiveData.photos
   };
 }
 
@@ -805,6 +983,7 @@ function renderHome() {
           <button class="btn btn-sm btn-primary" type="button" data-open-survey="${survey.id}">Continuar</button>
           <button class="btn btn-sm btn-secondary" type="button" data-export-survey="${survey.id}" data-export-format="excel">Exportar Apenas Planilha (.xlsx)</button>
           <button class="btn btn-sm btn-success" type="button" data-export-survey="${survey.id}" data-export-format="zip">Exportar Levantamento Completo (.zip)</button>
+          <button class="btn btn-sm btn-outline-primary" type="button" data-upload-survey="${survey.id}">☁️ Fazer Upload para o OneDrive</button>
           <button class="btn btn-sm btn-outline-danger" type="button" data-delete-survey="${survey.id}">Excluir</button>
         </div>
       </div>`;
@@ -892,19 +1071,19 @@ function paintPhotoPreview(preview, photos, onRemove) {
 
 function addPhotoField(container, title, owner, key, photos, metadata = {}) {
   const field = document.createElement('div');
-  field.className = 'photo-field col-md-6';
+  field.className = `photo-field ${metadata.photoFieldClass || 'col-md-6'}`;
   const heading = document.createElement('span');
   heading.className = 'form-label d-block';
   heading.textContent = title;
   const label = document.createElement('label');
   label.className = 'btn btn-sm btn-outline-secondary photo-button';
   const buttonText = document.createElement('span');
-  buttonText.textContent = `＋ Tirar foto: ${title}`;
+  buttonText.textContent = `＋ ${metadata.buttonLabel || `Tirar foto: ${title}`}`;
   const input = document.createElement('input');
   input.className = 'photo-input';
   input.type = 'file';
   input.accept = 'image/*';
-  input.multiple = true;
+  input.multiple = owner !== 'substation';
   input.dataset.photoOwner = owner;
   input.dataset.photoKey = key;
   input.dataset.photoDescription = title;
@@ -1029,6 +1208,21 @@ function addPanelDynamicPhoto(container, title, dataPath, photos, metadata) {
   });
 }
 
+function renderPanelColumnPhotos(card, data, seIndex, panelIndex) {
+  const container = card.querySelector('.column-photo-fields');
+  releasePhotoUrls(container);
+  container.replaceChildren();
+  data.fotos.fotos_colunas.forEach((photos, index) => {
+    addPanelDynamicPhoto(container, `Foto da Coluna ${index + 1}`,
+      `fotos.fotos_colunas.${index}`, photos, {
+        seIndex,
+        panelIndex,
+        buttonLabel: `Tirar foto da Coluna ${index + 1}`,
+        photoFieldClass: 'col-12'
+      });
+  });
+}
+
 function renderCoordinationFields(card, data, seIndex, panelIndex) {
   const container = card.querySelector('.coordination-fields');
   const coordination = data.coordenacaoSeletividade;
@@ -1041,18 +1235,27 @@ function renderCoordinationFields(card, data, seIndex, panelIndex) {
   coordination.relesProtecao.forEach((relay, index) => {
     const item = document.createElement('div');
     item.className = 'row g-3 border rounded p-3 mx-0 mt-3';
-    const path = `coordenacaoSeletividade.relesProtecao.${index}.fotosModeloOrderCode`;
-    addPanelDynamicPhoto(item, `Relé de proteção ${index + 1} — modelo e order code`, path,
-      relay.fotosModeloOrderCode, { seIndex, panelIndex });
-    addPanelExtraText(item, 'Em qual cubículo o relé/disjuntor está instalado?', 'cubiculo',
+    const heading = document.createElement('h6');
+    heading.className = 'form-section-title col-12 mb-0';
+    heading.textContent = `Dados do Relé ${index + 1}`;
+    item.append(heading);
+    addPanelExtraText(item, 'Em qual cubículo o relé está instalado?', 'cubiculo',
       relay.cubiculo, { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index });
-    addPanelExtraText(item, 'Ele é de Entrada ou qual saída está alimentando?', 'alimentacao',
+    addPanelExtraText(item, 'Ele é de entrada ou qual saída está alimentando?', 'alimentacao',
       relay.alimentacao, { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index });
     addPanelExtraRadio(item, 'Foi possível obter o backup do relé?', 'coordenacaoSeletividade',
       'backupObtido', relay.backupObtido, [
         { value: 'sim', label: 'Sim' },
         { value: 'nao', label: 'Não' }
       ], { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index, required: true });
+    const path = `coordenacaoSeletividade.relesProtecao.${index}.fotosModeloOrderCode`;
+    const relayPhoto = document.createElement('div');
+    relayPhoto.className = 'relay-model-photo col-12';
+    relayPhoto.dataset.relayModelPhotoIndex = String(index);
+    relayPhoto.hidden = relay.backupObtido !== 'nao';
+    addPanelDynamicPhoto(relayPhoto, `Relé de proteção ${index + 1} — modelo e order code`, path,
+      relay.fotosModeloOrderCode, { seIndex, panelIndex });
+    item.append(relayPhoto);
     base.append(item);
   });
 
@@ -1064,27 +1267,13 @@ function renderCoordinationFields(card, data, seIndex, panelIndex) {
     addPanelDynamicPhoto(item, `Disjuntor LSIG ${index + 1} — ajustes`,
       `coordenacaoSeletividade.disjuntoresLSIG.${index}.fotosAjustes`, breaker.fotosAjustes,
       { seIndex, panelIndex });
-    addPanelExtraText(item, 'Em qual cubículo o relé/disjuntor está instalado?', 'cubiculo',
+    addPanelExtraText(item, 'Em qual cubículo/coluna/gaveta o disjuntor está instalado?', 'cubiculo',
       breaker.cubiculo, { seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index });
-    addPanelExtraText(item, 'Ele é de Entrada ou qual saída está alimentando?', 'alimentacao',
+    addPanelExtraText(item, 'O disjuntor é de entrada ou qual saída está alimentando?', 'alimentacao',
       breaker.alimentacao, { seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index });
     base.append(item);
   });
 
-  addPanelExtraRadio(base, 'O painel possui TCs e TPs?', 'coordenacaoSeletividade',
-    'possuiTCsTPs', coordination.possuiTCsTPs, [
-      { value: 'sim', label: 'Sim' },
-      { value: 'nao', label: 'Não' },
-      { value: 'nao_identificado', label: 'Não é possível identificar' }
-    ], { seIndex, panelIndex });
-  const transformerPhotos = document.createElement('div');
-  transformerPhotos.className = 'row g-3 mt-1';
-  transformerPhotos.hidden = coordination.possuiTCsTPs !== 'sim';
-  addPanelDynamicPhoto(transformerPhotos, 'Foto dos TCs', 'coordenacaoSeletividade.fotosTCs',
-    coordination.fotosTCs, { seIndex, panelIndex });
-  addPanelDynamicPhoto(transformerPhotos, 'Foto dos TPs', 'coordenacaoSeletividade.fotosTPs',
-    coordination.fotosTPs, { seIndex, panelIndex });
-  base.append(transformerPhotos);
   container.append(base);
 
   const intelligentScope = hasAdditionalScope('Ajustes dos Relés Inteligentes');
@@ -1182,17 +1371,27 @@ function renderIncidentEnergyFields(card, data, seIndex, panelIndex) {
     const compartment = incident.compartimentos[name];
     const block = document.createElement('section');
     block.className = 'compartment-block col-12 border rounded p-3 row g-3';
-    const heading = document.createElement('h6');
-    heading.className = 'form-section-title col-12';
-    heading.textContent = name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento do Painel';
+    const heading = document.createElement('div');
+    heading.className = 'col-12 d-flex align-items-center flex-wrap gap-2';
+    const title = document.createElement('h6');
+    title.className = 'form-section-title mb-0';
+    title.textContent = name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento do Painel';
+    const helpButton = document.createElement('button');
+    helpButton.className = 'btn btn-sm btn-outline-info ms-2 py-0 px-1';
+    helpButton.type = 'button';
+    helpButton.dataset.bsToggle = 'modal';
+    helpButton.dataset.bsTarget = name === 'entrada' ? '#modalDicaEntrada' : '#modalDicaMenor';
+    helpButton.setAttribute('aria-label', `Como medir o compartimento ${name === 'entrada' ? 'de entrada' : 'menor'}?`);
+    helpButton.textContent = 'ℹ️';
+    heading.append(title, helpButton);
     block.append(heading);
-    ['altura', 'largura', 'comprimento'].forEach(dimension => {
+    ['altura', 'largura', 'profundidade'].forEach(dimension => {
       const wrapper = document.createElement('div');
       wrapper.className = 'col-md-4';
       const label = document.createElement('label');
       label.className = 'form-label';
       label.htmlFor = `se-${seIndex}-panel-${panelIndex}-${name}-${dimension}`;
-      label.textContent = dimension.charAt(0).toUpperCase() + dimension.slice(1);
+      label.textContent = `${dimension.charAt(0).toUpperCase() + dimension.slice(1)} (mm)`;
       const input = document.createElement('input');
       input.className = 'form-control';
       input.type = 'text';
@@ -1421,6 +1620,12 @@ function renderSubstations() {
     observations.value = substation.observacoes;
     observations.dataset.seIndex = String(seIndex);
     card.querySelector('.se-observations-label').htmlFor = observations.id;
+    addPhotoField(card.querySelector('.se-observation-photo'), 'Foto opcional da observação da SE',
+      'substation', 'foto_observacao_se', substation.foto_observacao_se, {
+        seIndex,
+        buttonLabel: 'Adicionar foto opcional da SE',
+        photoFieldClass: 'col-12'
+      });
 
     const count = card.querySelector('.se-panel-count');
     count.id = `se-${seIndex}-panel-count`;
@@ -1440,13 +1645,10 @@ function renderSubstations() {
 function setupPanelModuleCollapse(card, selector, sectionKey, seIndex, panelIndex, expandedSections) {
   const section = card.querySelector(selector);
   section.classList.add('module-card-section');
-  const existingHeader = section.querySelector('.short-circuit-heading');
   const title = section.querySelector('h5');
-  const header = existingHeader || document.createElement('div');
-  if (!existingHeader) {
-    header.className = 'module-section-heading';
-    header.append(title);
-  }
+  const header = document.createElement('div');
+  header.className = 'module-section-heading';
+  header.append(title);
   const sectionId = `se-${seIndex}-panel-${panelIndex}-module-${sectionKey}`;
   const collapse = document.createElement('div');
   collapse.className = 'collapse show module-collapse';
@@ -1502,6 +1704,7 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
     ['.panel-type-select', '.panel-type-label', data.tipo, 'type'],
     ['.panel-voltage-select', '.panel-voltage-label', data.nivelTensao, 'voltage'],
     ['.other-voltage-input', '.other-voltage-label', data.outroNivelTensao, 'other-voltage'],
+    ['.panel-column-count', '.panel-column-count-label', data.quantidadeColunas, 'columns'],
     ['.panel-observations-input', '.panel-observations-label', data.observacoes, 'observations']
   ];
   fields.forEach(([selector, labelSelector, value, suffix]) => {
@@ -1558,6 +1761,7 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
       persistCurrentSurvey();
     });
   });
+  renderPanelColumnPhotos(card, data, seIndex, panelIndex);
   card.querySelector('.other-voltage-field').hidden = data.nivelTensao !== 'Outro';
   renderPanelModules(card, data, seIndex, panelIndex);
   updatePanelConditions(card, data);
@@ -1567,14 +1771,18 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
 function updatePanelConditions(card, data) {
   card.querySelector('[data-condition="unifilar"]').hidden = data.possuiUnifilar !== 'sim';
   card.querySelector('.short-circuit-section').hidden = !hasShortCircuitScope();
-  const mediumVoltage = ['4.16kV', '13.8kV', '34.5kV'].includes(data.nivelTensao);
+  const mediumVoltage = ['4.16 kV', '6.9 kV', '13.8 kV', '34.5 kV'].includes(data.nivelTensao);
   card.querySelector('.medium-voltage-motors').hidden = !mediumVoltage;
   card.querySelector('.motor-photo-field').hidden = !mediumVoltage || data.curtoCircuito.possuiMotoresMT !== 'sim';
   card.querySelector('.cable-fields').hidden = data.curtoCircuito.informacoesCabosDisponiveis !== 'sim';
-  card.querySelector('.supportability-values').hidden = data.curtoCircuito.naoFoiPossivelObterSuportabilidade;
-  card.querySelector('.support-photo-field').hidden = false;
-  card.querySelector('.support-breaker-photo-field').hidden = false;
-  card.querySelector('.support-photo-required').hidden = false;
+  card.querySelector('.support-panel-photo-field').hidden =
+    data.curtoCircuito.suportabilidadePainelDisponivel !== 'sim';
+  card.querySelector('.support-panel-justification').hidden =
+    data.curtoCircuito.suportabilidadePainelDisponivel !== 'nao';
+  card.querySelector('.support-breaker-photo-field').hidden =
+    data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'sim';
+  card.querySelector('.support-breaker-justification').hidden =
+    data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'nao';
   const coordinationScope = currentSurvey.obra.escopoServico.includes('Coordenação e Seletividade');
   const intelligentScope = hasAdditionalScope('Ajustes dos Relés Inteligentes');
   const lowVoltageScope = hasAdditionalScope('Painéis de baixa tensão (QD/QDL/QL)') && isLowVoltagePanel(data.tipo);
@@ -1587,8 +1795,10 @@ function updatePanelConditions(card, data) {
   if (coordinationBase) coordinationBase.hidden = !coordinationScope;
   card.querySelector('.coordination-section .module-section-heading > .form-section-title').hidden =
     !coordinationScope;
-  const tcTpPhotos = card.querySelector('.coordination-fields .row.g-3.mt-1');
-  if (tcTpPhotos) tcTpPhotos.hidden = coordination.possuiTCsTPs !== 'sim';
+  card.querySelectorAll('[data-relay-model-photo-index]').forEach(photoField => {
+    const relay = coordination.relesProtecao[Number(photoField.dataset.relayModelPhotoIndex)];
+    photoField.hidden = relay?.backupObtido !== 'nao';
+  });
   const intelligentRelayList = card.querySelector('.intelligent-relay-list');
   if (intelligentRelayList) intelligentRelayList.hidden = coordination.possuiRelesInteligentes !== 'sim';
   const intelligentFields = card.querySelector('.intelligent-relay-fields');
@@ -1611,9 +1821,7 @@ function hasAdditionalScope(value) {
 }
 
 function isLowVoltagePanel(type) {
-  const components = String(type || '').toUpperCase().split(/[\/\s(),]+/).filter(Boolean);
-  return components.includes('QD') && components.includes('QDL')
-    && components.includes('QL') && components.includes('PNL');
+  return ['QD de BT', 'PNL/QDL/QL', 'QD/QDL/QL/PNL'].includes(type);
 }
 
 function syncScopeVisibility() {
@@ -1640,6 +1848,7 @@ function getPhotoArray(input) {
     return se.transformadores[Number(input.dataset.transformerIndex)]?.fotos[input.dataset.photoKey] ?? null;
   }
   if (input.dataset.photoOwner === 'equipment') return se.demaisEquipamentos[Number(input.dataset.equipmentIndex)]?.fotos ?? null;
+  if (input.dataset.photoOwner === 'substation') return se.foto_observacao_se;
   if (input.dataset.photoOwner === 'panelDynamic') {
     const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
     if (!panel) return null;
@@ -1651,6 +1860,7 @@ function getPhotoArray(input) {
 function getPhotoWatermarkContext(input) {
   const se = currentSurvey.subestacoes[Number(input.dataset.seIndex)];
   const descriptionByKey = {
+    foto_observacao_se: 'Foto das observações gerais da subestação',
     foto_identificacao: 'Foto de identificação do painel',
     foto_unifilar: 'Foto do Unifilar',
     foto_painel_completo: 'Foto completa do painel',
@@ -1665,6 +1875,8 @@ function getPhotoWatermarkContext(input) {
     subject = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex))?.dadosPainel.nome || 'Painel';
   } else if (input.dataset.photoOwner === 'equipment') {
     subject = se?.demaisEquipamentos[Number(input.dataset.equipmentIndex)]?.nome || 'Equipamento de MT';
+  } else if (input.dataset.photoOwner === 'substation') {
+    subject = se?.nome || 'Subestação';
   }
   const fieldDescription = input.closest('.photo-field')?.querySelector('.form-label')?.textContent?.trim();
   return {
@@ -1714,7 +1926,7 @@ async function watermarkPhoto(file, input) {
   const twoDigits = value => String(value).padStart(2, '0');
   const timestamp = `${twoDigits(now.getDate())}/${twoDigits(now.getMonth() + 1)}/${now.getFullYear()} ${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`;
   const lines = [timestamp, substation, subject, description];
-  const fontSize = Math.max(12, Math.min(36, Math.round(Math.min(canvas.width, canvas.height) * 0.025)));
+  const fontSize = Math.max(14, Math.min(48, Math.round(Math.min(canvas.width, canvas.height) * 0.04)));
   const lineHeight = Math.ceil(fontSize * 1.25);
   const padding = Math.ceil(fontSize * 0.7);
   const right = canvas.width - padding;
@@ -1775,18 +1987,6 @@ async function handlePhotoInput(input) {
     });
     persistCurrentSurvey();
   });
-  if (input.dataset.photoKey === 'foto_suportabilidades' && photos.length > 0) {
-    const data = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex)).dadosPainel;
-    input.closest('.panel-card').querySelector('.support-photo-warning').hidden =
-      data.fotos.foto_suportabilidade_disjuntor.length > 0;
-    input.closest('.support-photo-field').classList.remove('support-photo-invalid');
-  }
-  if (input.dataset.photoKey === 'foto_suportabilidade_disjuntor' && photos.length > 0) {
-    const data = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex)).dadosPainel;
-    input.closest('.panel-card').querySelector('.support-photo-warning').hidden =
-      data.fotos.foto_suportabilidades.length > 0;
-    input.closest('.support-breaker-photo-field').classList.remove('support-photo-invalid');
-  }
   await persistCurrentSurvey();
 }
 
@@ -1849,7 +2049,20 @@ function updatePanelField(input) {
   const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
   if (!panel) return;
   const field = input.dataset.panelField;
-  panel.dadosPainel[field] = input.value;
+  if (field === 'quantidadeColunas') {
+    const count = Math.max(0, Math.min(MAX_PANEL_COLUMNS, Math.trunc(Number(input.value) || 0)));
+    panel.dadosPainel.quantidadeColunas = count;
+    panel.dadosPainel.fotos.fotos_colunas = resizeRecords(
+      panel.dadosPainel.fotos.fotos_colunas,
+      count,
+      () => []
+    );
+    input.value = String(count);
+    renderPanelColumnPhotos(input.closest('.panel-card'), panel.dadosPainel,
+      Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  } else {
+    panel.dadosPainel[field] = input.value;
+  }
   if (field === 'nome') {
     const card = input.closest('.panel-card');
     card.querySelector('.panel-title').textContent = input.value || `Painel ${String(Number(input.dataset.panelIndex) + 1).padStart(2, '0')}`;
@@ -1870,10 +2083,6 @@ function updateShortCircuitField(input) {
     ? input.checked
     : input.value;
   updatePanelConditions(input.closest('.panel-card'), panel.dadosPainel);
-  const data = panel.dadosPainel;
-  input.closest('.panel-card').querySelector('.support-photo-warning').hidden =
-    data.fotos.foto_suportabilidades.length > 0
-    && data.fotos.foto_suportabilidade_disjuntor.length > 0;
   scheduleSave();
 }
 
@@ -1991,20 +2200,46 @@ function validatePanelRequirements() {
       const data = panel.dadosPainel;
       const coordination = data.coordenacaoSeletividade;
       if (scopes.includes('Curto-circuito')) {
-        for (const [key, selector] of [
-          ['foto_suportabilidades', '.support-photo-field'],
-          ['foto_suportabilidade_disjuntor', '.support-breaker-photo-field']
-        ]) {
-          if (!data.fotos[key].length) {
-            const photoField = substationList.querySelector(
-              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] ${selector}`
-            );
-            photoField.classList.add('support-photo-invalid');
-            substationList.querySelector(
-              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] .support-photo-warning`
-            ).hidden = false;
-            return focusPanelRequirement(seIndex, panelIndex, photoField,
-              `A foto da suportabilidade ${key === 'foto_suportabilidades' ? 'do painel' : 'do disjuntor'} é obrigatória em "${data.nome || `Painel ${panelIndex + 1}`}".`);
+        const panelCard = substationList.querySelector(
+          `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"]`
+        );
+        const supportabilityRequirements = [
+          {
+            answerField: 'suportabilidadePainelDisponivel',
+            answer: data.curtoCircuito.suportabilidadePainelDisponivel,
+            photos: data.fotos.foto_suportabilidades,
+            justification: data.curtoCircuito.justificativaSuportabilidadePainel,
+            photoSelector: '.support-panel-photo-field',
+            justificationSelector: '.support-panel-justification textarea',
+            subject: 'do painel'
+          },
+          {
+            answerField: 'suportabilidadeDisjuntorDisponivel',
+            answer: data.curtoCircuito.suportabilidadeDisjuntorDisponivel,
+            photos: data.fotos.foto_suportabilidade_disjuntor,
+            justification: data.curtoCircuito.justificativaSuportabilidadeDisjuntor,
+            photoSelector: '.support-breaker-photo-field',
+            justificationSelector: '.support-breaker-justification textarea',
+            subject: 'do disjuntor de entrada'
+          }
+        ];
+        for (const requirement of supportabilityRequirements) {
+          if (!requirement.answer) {
+            const question = panelCard.querySelector(
+              `[data-short-field="${requirement.answerField}"]`
+            )?.closest('fieldset');
+            return focusPanelRequirement(seIndex, panelIndex, question,
+              `Informe se é possível obter as suportabilidades ${requirement.subject} no painel "${data.nome || `Painel ${panelIndex + 1}`}".`);
+          }
+          if (requirement.answer === 'sim' && !requirement.photos.length) {
+            return focusPanelRequirement(seIndex, panelIndex,
+              panelCard.querySelector(requirement.photoSelector),
+              `A foto da suportabilidade ${requirement.subject} é obrigatória em "${data.nome || `Painel ${panelIndex + 1}`}".`);
+          }
+          if (requirement.answer === 'nao' && !requirement.justification.trim()) {
+            return focusPanelRequirement(seIndex, panelIndex,
+              panelCard.querySelector(requirement.justificationSelector),
+              `Por que não foi possível obter as suportabilidades ${requirement.subject}.`);
           }
         }
       }
@@ -2025,17 +2260,19 @@ function validatePanelRequirements() {
             return focusPanelRequirement(seIndex, panelIndex, input,
               `Preencha o cubículo e a entrada/saída do relé de proteção ${index + 1}.`);
           }
-          const photoPath = `coordenacaoSeletividade.relesProtecao.${index}.fotosModeloOrderCode`;
-          const photoInput = substationList.querySelector(
-            `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-photo-path="${photoPath}"]`
-          );
-          if (!relay.fotosModeloOrderCode.length) {
-            return focusPanelRequirement(seIndex, panelIndex, photoInput?.closest('.photo-field'),
-              `A foto do modelo e order code do relé ${index + 1} é obrigatória.`);
-          }
           if (!relay.backupObtido) {
             return focusPanelRequirement(seIndex, panelIndex, findRadio('backupObtido', 'relesProtecao', index)?.closest('fieldset'),
               `Informe se foi possível obter o backup do relé ${index + 1}.`);
+          }
+          if (relay.backupObtido === 'nao') {
+            const photoPath = `coordenacaoSeletividade.relesProtecao.${index}.fotosModeloOrderCode`;
+            const photoInput = substationList.querySelector(
+              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-photo-path="${photoPath}"]`
+            );
+            if (!relay.fotosModeloOrderCode.length) {
+              return focusPanelRequirement(seIndex, panelIndex, photoInput?.closest('.photo-field'),
+                `A foto do modelo e order code do relé ${index + 1} é obrigatória.`);
+            }
           }
         }
         for (const [index, breaker] of coordination.disjuntoresLSIG.entries()) {
@@ -2055,10 +2292,6 @@ function validatePanelRequirements() {
             return focusPanelRequirement(seIndex, panelIndex, photoInput?.closest('.photo-field'),
               `A foto dos ajustes do disjuntor LSIG ${index + 1} é obrigatória.`);
           }
-        }
-        if (!coordination.possuiTCsTPs) {
-          return focusPanelRequirement(seIndex, panelIndex, findRadio('possuiTCsTPs')?.closest('fieldset'),
-            'Informe se o painel possui TCs e TPs.');
         }
       }
       if (hasAdditionalScope('Ajustes dos Relés Inteligentes')) {
@@ -2144,33 +2377,6 @@ function validatePanelRequirements() {
   return true;
 }
 
-function validateSupportabilityPhotos() {
-  if (!hasShortCircuitScope()) return true;
-  for (const [seIndex, substation] of currentSurvey.subestacoes.entries()) {
-    for (const [panelIndex, panel] of substation.paineis.entries()) {
-      const missingPanelPhoto = panel.dadosPainel.fotos.foto_suportabilidades.length === 0;
-      const missingBreakerPhoto = panel.dadosPainel.fotos.foto_suportabilidade_disjuntor.length === 0;
-      if (!missingPanelPhoto && !missingBreakerPhoto) continue;
-
-      const seCard = substationList.querySelector(`.substation-card[data-se-index="${seIndex}"]`);
-      const panelCard = seCard.querySelector(`.panel-card[data-panel-index="${panelIndex}"]`);
-      const photoField = panelCard.querySelector(missingPanelPhoto ? '.support-photo-field' : '.support-breaker-photo-field');
-      panelCard.querySelector('.support-photo-warning').hidden = false;
-      photoField.classList.add('support-photo-invalid');
-      photoField.tabIndex = -1;
-      window.bootstrap?.Collapse.getOrCreateInstance(seCard.querySelector('.substation-collapse'), { toggle: false }).show();
-      window.bootstrap?.Collapse.getOrCreateInstance(panelCard.querySelector('.panel-collapse'), { toggle: false }).show();
-      window.setTimeout(() => {
-        photoField.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        photoField.focus({ preventScroll: true });
-      }, 350);
-      showAlert(`As fotos da suportabilidade do painel e do disjuntor são obrigatórias no painel "${panel.dadosPainel.nome || `Painel ${panelIndex + 1}`}".`, true);
-      return false;
-    }
-  }
-  return true;
-}
-
 document.getElementById('start-survey-button').addEventListener('click', () => {
   currentSurvey = makeSurvey();
   loadSurveyIntoForm();
@@ -2220,7 +2426,6 @@ document.getElementById('add-se-button').addEventListener('click', async () => {
 });
 
 document.getElementById('finish-survey-button').addEventListener('click', async () => {
-  if (!validateSupportabilityPhotos()) return;
   if (!validatePanelRequirements()) return;
   const emptyPanel = substationList.querySelector('.panel-name-input:invalid');
   if (emptyPanel) {
@@ -2444,6 +2649,25 @@ substationList.addEventListener('click', async event => {
 });
 
 document.getElementById('saved-surveys').addEventListener('click', async event => {
+  const uploadButton = event.target.closest('[data-upload-survey]');
+  if (uploadButton) {
+    const originalLabel = uploadButton.textContent;
+    uploadButton.disabled = true;
+    uploadButton.textContent = 'Fazendo upload...';
+    try {
+      const accessToken = await conectarOneDrive();
+      const result = await uploadParaOneDrive(accessToken, uploadButton.dataset.uploadSurvey);
+      showAlert(`Upload concluído: ${result.substations} SE(s), ${result.panels} painel(is) e ${result.photos} foto(s).`);
+    } catch (error) {
+      console.error('Não foi possível enviar o levantamento para o OneDrive.', error);
+      showAlert(error.message || 'Não foi possível enviar o levantamento para o OneDrive.', true);
+    } finally {
+      uploadButton.disabled = false;
+      uploadButton.textContent = originalLabel;
+    }
+    return;
+  }
+
   const exportButton = event.target.closest('[data-export-survey]');
   if (exportButton) {
     const survey = savedSurveys.find(item => item.id === exportButton.dataset.exportSurvey);

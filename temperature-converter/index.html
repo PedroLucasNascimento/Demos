@@ -10,6 +10,7 @@
     <link rel="manifest" href="./manifest.json">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="./converter.css">
+    <script src="https://alcdn.msauth.net/browser/2.30.0/js/msal-browser.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
     <title>Campo Elétrico — Levantamento de campo</title>
@@ -194,13 +195,13 @@
               <div class="col-12 transformer-list"></div>
               <div class="col-12">
                 <fieldset class="mb-3">
-                  <legend class="form-label">Possui demais equipamentos de média tensão (inversores, reatores etc.)?</legend>
+                  <legend class="form-label">Possui outros equipamentos de média tensão (inversores, reatores, filtros etc.)?</legend>
                   <div class="form-check form-check-inline"><input class="form-check-input equipment-answer" type="radio" value="sim" data-se-field="possuiDemaisEquipamentos"><label class="form-check-label">Sim</label></div>
                   <div class="form-check form-check-inline"><input class="form-check-input equipment-answer" type="radio" value="nao" data-se-field="possuiDemaisEquipamentos"><label class="form-check-label">Não</label></div>
                 </fieldset>
                 <div class="equipment-details" hidden>
                 <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-                  <h5 class="form-section-title mb-0">Demais equipamentos de média tensão</h5>
+                  <h5 class="form-section-title mb-0">Outros equipamentos de média tensão</h5>
                   <button class="btn btn-sm btn-outline-primary add-equipment-button" type="button">＋ Adicionar equipamento</button>
                 </div>
                 <p class="form-hint">Informe o nome de cada inversor, reator ou outro equipamento.</p>
@@ -208,8 +209,9 @@
                 </div>
               </div>
               <div class="col-12">
-                <label class="form-label se-observations-label">Observações, informações adicionais ou notas</label>
+                <label class="form-label se-observations-label">Observações Gerais da SE</label>
                 <textarea class="form-control se-observations-input" data-se-field="observacoes" rows="3" maxlength="2000"></textarea>
+                <div class="se-observation-photo mt-2"></div>
               </div>
             </div>
           </section>
@@ -249,21 +251,26 @@
             <select class="form-select panel-type-select" data-panel-field="tipo">
               <option value="">Selecione...</option>
               <option value="CCM">CCM</option>
-              <option value="QGBT de MT">QGBT de MT</option>
-              <option value="QGBT de BT">QGBT de BT</option>
-              <option value="QD/QDL/QL/PNL">QD/QDL/QL/PNL</option>
+              <option value="QGBT">QGBT</option>
+              <option value="QDMT">QDMT</option>
+              <option value="QDBT">QDBT</option>
               <option value="Painel de Inversor">Painel de Inversor</option>
+              <option value="PNL/QDL/QL">PNL/QDL/QL</option>
             </select>
           </div>
           <div class="col-md-5">
             <label class="form-label panel-voltage-label">Nível de tensão do painel</label>
             <select class="form-select panel-voltage-select" data-panel-field="nivelTensao">
               <option value="">Selecione...</option>
+              <option value="34.5 kV">34.5 kV</option>
+              <option value="13.8 kV">13.8 kV</option>
+              <option value="6.9 kV">6.9 kV</option>
+              <option value="4.16 kV">4.16 kV</option>
+              <option value="690V">690V</option>
+              <option value="480V">480V</option>
               <option value="380V">380V</option>
-              <option value="440V">440V</option>
-              <option value="4.16kV">4.16kV</option>
-              <option value="13.8kV">13.8kV</option>
-              <option value="34.5kV">34.5kV</option>
+              <option value="220V">220V</option>
+              <option value="127V">127V</option>
               <option value="Outro">Outro</option>
             </select>
           </div>
@@ -300,35 +307,43 @@
             <label class="btn btn-sm btn-outline-secondary photo-button"><span data-panel-photo-label="completo">＋ Tirar foto completa do painel</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_painel_completo"></label>
             <div class="photo-preview" data-preview-key="foto_painel_completo"></div>
           </div>
+          <div class="photo-field">
+            <label class="form-label panel-column-count-label">Quantas colunas o painel possui?</label>
+            <input class="form-control panel-column-count" type="number" min="0" max="60" step="1" data-panel-field="quantidadeColunas">
+          </div>
         </div>
+        <div class="column-photo-fields photo-grid mt-2"></div>
 
         <section class="short-circuit-section mt-4" hidden>
-          <div class="short-circuit-heading"><span class="short-circuit-mark" aria-hidden="true">ϟ</span><div><h5>Informações de Curto-circuito</h5><p>Exibidas porque Curto-circuito está selecionado no escopo do serviço.</p></div></div>
+          <h5 class="form-section-title">Informações de Curto-circuito</h5>
           <div class="row g-3">
-            <fieldset class="col-12">
-              <div class="form-check">
-                <input class="form-check-input" id="nao-foi-possivel-obter-suportabilidade" type="checkbox" data-short-field="naoFoiPossivelObterSuportabilidade">
-                <label class="form-check-label" for="nao-foi-possivel-obter-suportabilidade">Não foi possível obter suportabilidade</label>
-              </div>
-              <div class="supportability-values row g-3 mt-1">
-                <div class="col-md-6"><label class="form-label">Suportabilidade térmica do painel (kA / 1s)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeTermicaPainel" placeholder="Ex.: 25 kA / 1s"></div>
-                <div class="col-md-6"><label class="form-label">Suportabilidade dinâmica do painel (kA de pico)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeDinamicaPainel" placeholder="Ex.: 63 kA de pico"></div>
-                <div class="col-md-6"><label class="form-label">Suportabilidade térmica do disjuntor (kA / 1s)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeTermicaDisjuntor" placeholder="Ex.: 25 kA / 1s"></div>
-                <div class="col-md-6"><label class="form-label">Suportabilidade dinâmica do disjuntor (kA de pico)</label><input class="form-control" type="text" inputmode="decimal" data-short-field="suportabilidadeDinamicaDisjuntor" placeholder="Ex.: 63 kA de pico"></div>
-              </div>
-              <div class="row g-3 mt-1">
-                <div class="support-photo-field col-md-6">
-                <label class="form-label d-block">Foto da suportabilidade do painel <span class="text-danger support-photo-required">*</span></label>
+            <fieldset class="col-md-6">
+              <legend class="form-label">É possível obter suportabilidades do painel? <span class="text-danger">*</span></legend>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="suportabilidadePainelDisponivel" required><label class="form-check-label">Sim</label></div>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="suportabilidadePainelDisponivel" required><label class="form-check-label">Não</label></div>
+              <div class="support-panel-photo-field mt-2" hidden>
+                <label class="form-label d-block">Foto da suportabilidade do painel <span class="text-danger">*</span></label>
                 <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do painel</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidades"></label>
                 <div class="photo-preview" data-preview-key="foto_suportabilidades"></div>
               </div>
-                <div class="support-breaker-photo-field col-md-6">
-                  <label class="form-label d-block">Foto da suportabilidade do disjuntor <span class="text-danger">*</span></label>
-                  <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do disjuntor</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
-                  <div class="photo-preview" data-preview-key="foto_suportabilidade_disjuntor"></div>
-                </div>
+              <div class="support-panel-justification mt-2" hidden>
+                <label class="form-label">Por que não foi possível obter as suportabilidades do painel <span class="text-danger">*</span></label>
+                <textarea class="form-control" rows="3" data-short-field="justificativaSuportabilidadePainel" required></textarea>
               </div>
-              <div class="support-photo-warning alert alert-danger py-2 mt-2 mb-0" hidden>As fotos da suportabilidade do painel e do disjuntor são obrigatórias para salvar.</div>
+            </fieldset>
+            <fieldset class="col-md-6">
+              <legend class="form-label">É possível obter suportabilidades do disjuntor de entrada? <span class="text-danger">*</span></legend>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Sim</label></div>
+              <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Não</label></div>
+              <div class="support-breaker-photo-field mt-2" hidden>
+                <label class="form-label d-block">Foto da suportabilidade do disjuntor de entrada <span class="text-danger">*</span></label>
+                <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do disjuntor de entrada</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
+                <div class="photo-preview" data-preview-key="foto_suportabilidade_disjuntor"></div>
+              </div>
+              <div class="support-breaker-justification mt-2" hidden>
+                <label class="form-label">Por que não foi possível obter as suportabilidades do disjuntor de entrada <span class="text-danger">*</span></label>
+                <textarea class="form-control" rows="3" data-short-field="justificativaSuportabilidadeDisjuntor" required></textarea>
+              </div>
             </fieldset>
             <section class="col-12 medium-voltage-motors" hidden>
               <h6 class="form-section-title">Motores de média tensão</h6>
@@ -372,5 +387,39 @@
       }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous" defer></script>
+    <div class="modal fade" id="modalDicaEntrada" tabindex="-1" aria-labelledby="modalDicaEntradaLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5" id="modalDicaEntradaLabel">Medição do Compartimento de Entrada</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <img src="./assets/images/entrada_painel.png" alt="Gabarito de medição do compartimento de entrada do painel" class="img-fluid rounded border mb-2 measurement-tip-image">
+            <p class="mb-0">⚠️ <strong>Atenção:</strong> Meça exclusivamente o vão útil ou a gaveta de força principal (entrada) onde está instalado o disjuntor geral, conforme indicado em amarelo. A imagem é apenas uma ilustração e trata-se de um exemplo de gabarito.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="modalDicaMenor" tabindex="-1" aria-labelledby="modalDicaMenorLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5" id="modalDicaMenorLabel">Medição do Menor Compartimento (Gaveta)</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <img src="./assets/images/menor_gaveta.png" alt="Gabarito de medição do menor compartimento de gaveta extraível" class="img-fluid rounded border mb-2 measurement-tip-image">
+            <p class="mb-0">⚠️ <strong>Atenção:</strong> Meça os limites exatos da menor gaveta operacional de força ativa, considerando a altura, a largura e a profundidade do vão de inserção, conforme destacado em amarelo. A imagem é apenas uma ilustração e trata-se de um exemplo de gabarito.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

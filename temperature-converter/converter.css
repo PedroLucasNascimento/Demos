@@ -89,17 +89,13 @@ body { min-width: 320px; min-height: 100vh; background: var(--canvas); color: va
 .photo-button input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .photo-preview { margin-top: 7px; color: #718096; font-size: .72rem; }
 .photo-preview img { width: 68px; height: 54px; margin: 4px 5px 0 0; border-radius: 5px; object-fit: cover; }
+.measurement-tip-image { display: block; width: 100%; max-height: 50vh; object-fit: contain; }
 .conditional-photo { margin-top: 9px; }
 .resistor-photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .short-circuit-section { padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: white; }
-.short-circuit-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
-.short-circuit-heading h5 { margin: 0; color: var(--ink); font-size: .92rem; font-weight: 700; }
-.short-circuit-heading p { margin: 4px 0 0; color: var(--muted); font-size: .75rem; }
-.short-circuit-mark { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 7px; background: #eaf0ff; color: #315bb0; font-weight: 700; }
 .module-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .module-section-heading h5 { margin: 0; color: var(--ink); font-size: .92rem; }
 .module-collapse-label { min-width: 86px; font-size: .72rem; }
-.support-photo-invalid { border-color: #dc3545 !important; }
 .medium-voltage-motors { padding: 14px; border: 1px solid #dce7f3; border-radius: 8px; background: #f7faff; }
 .app-alert { position: fixed; right: 18px; bottom: 18px; z-index: 5; max-width: min(390px, calc(100vw - 36px)); padding: 12px 15px; transform: translateY(8px); border-radius: 7px; background: var(--navy); color: white; opacity: 0; pointer-events: none; font-size: .82rem; transition: .2s; }
 .app-alert.visible { transform: translateY(0); opacity: 1; }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'campo-eletrico-v8';
+const CACHE_NAME = 'campo-eletrico-v10';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,10 +8,15 @@ const APP_SHELL = [
   './icon.svg'
 ];
 const CDN_ASSETS = [
+  'https://alcdn.msauth.net/browser/2.30.0/js/msal-browser.min.js',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js',
   'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js',
   'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'
+];
+const OPTIONAL_ASSETS = [
+  './assets/images/entrada_painel.png',
+  './assets/images/menor_gaveta.png'
 ];
 
 self.addEventListener('install', event => {
@@ -19,6 +24,13 @@ self.addEventListener('install', event => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(APP_SHELL);
     await Promise.all(CDN_ASSETS.map(async asset => {
+      try {
+        await cache.add(asset);
+      } catch (error) {
+        console.warn(`Não foi possível pré-armazenar ${asset}; será necessário acesso à rede.`, error);
+      }
+    }));
+    await Promise.all(OPTIONAL_ASSETS.map(async asset => {
       try {
         await cache.add(asset);
       } catch (error) {
