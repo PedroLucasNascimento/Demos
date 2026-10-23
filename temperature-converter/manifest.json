@@ -1,7 +1,7 @@
 {
   "lang": "pt-BR",
-  "name": "Campo Elétrico — Levantamento de campo",
-  "short_name": "Campo Elétrico",
+  "name": "APP Levantamento de Campo",
+  "short_name": "Levantamento de Campo",
   "description": "Cadastro offline de obras, escopos, painéis, subestações, parâmetros e fotos para estudos elétricos.",
   "start_url": "./",
   "background_color": "#f5f7fa",
