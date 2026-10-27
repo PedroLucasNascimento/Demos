@@ -224,6 +224,7 @@
           </div>
           <div class="panel-list"></div>
           <button class="btn btn-sm btn-outline-primary add-panel-button" type="button">＋ Adicionar Painel</button>
+          <button class="btn btn-sm btn-primary save-substation-button mt-3" type="button">Salvar Subestação (SE)</button>
           </div>
         </div>
       </article>
@@ -323,7 +324,7 @@
               <legend class="form-label">É possível obter suportabilidades do painel? <span class="text-danger">*</span></legend>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="suportabilidadePainelDisponivel" required><label class="form-check-label">Sim</label></div>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="suportabilidadePainelDisponivel" required><label class="form-check-label">Não</label></div>
-              <div class="support-panel-photo-field mt-2" hidden>
+              <div class="support-panel-photo-field photo-field mt-2" hidden>
                 <label class="form-label d-block">Foto da suportabilidade do painel <span class="text-danger">*</span></label>
                 <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do painel</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidades"></label>
                 <div class="photo-preview" data-preview-key="foto_suportabilidades"></div>
@@ -337,7 +338,7 @@
               <legend class="form-label">Foi possível tirar foto da suportabilidade ou do modelo do disjuntor? <span class="text-danger">*</span></legend>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Sim</label></div>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Não</label></div>
-              <div class="support-breaker-photo-field mt-2" hidden>
+              <div class="support-breaker-photo-field photo-field mt-2" hidden>
                 <label class="form-label d-block">Foto da suportabilidade ou do modelo do disjuntor <span class="text-danger">*</span></label>
                 <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade ou do modelo do disjuntor</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
                 <div class="photo-preview" data-preview-key="foto_suportabilidade_disjuntor"></div>
@@ -376,6 +377,9 @@
           <h5 class="form-section-title">Estudo de Energia Incidente</h5>
           <div class="incident-energy-fields"></div>
         </section>
+        <div class="d-flex justify-content-end mt-3">
+          <button class="btn btn-sm btn-primary save-panel-button" type="button">Salvar Painel</button>
+        </div>
         </div>
         </div>
       </article>

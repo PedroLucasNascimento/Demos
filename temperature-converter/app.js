@@ -743,11 +743,16 @@ function photoExtension(photo) {
   return filenameExtension || 'jpg';
 }
 
-function addPhotosToZip(zipFolder, photos, filenameBase) {
-  asPhotoArray(photos).forEach((photo, index) => {
-    const payload = photoPayload(photo);
-    const suffix = asPhotoArray(photos).length > 1 ? `_${index + 1}` : '';
-    zipFolder.file(`${filenameBase}${suffix}.${photoExtension(payload)}`, payload.blob);
+function addPhotosToZip(zipFolder, photos, filenameBase, watermarkContext, pendingWatermarks) {
+  const photoList = asPhotoArray(photos);
+  let watermarkTask = pendingWatermarks[pendingWatermarks.length - 1] || Promise.resolve();
+  photoList.forEach((photo, index) => {
+    const suffix = photoList.length > 1 ? `_${index + 1}` : '';
+    watermarkTask = watermarkTask.then(async () => {
+      const payload = await watermarkPhoto(photo, watermarkContext);
+      zipFolder.file(`${filenameBase}${suffix}.${photoExtension(payload)}`, payload.blob);
+    });
+    pendingWatermarks.push(watermarkTask);
   });
 }
 
@@ -755,6 +760,12 @@ async function gerarZipCompleto(survey) {
   if (!window.JSZip) {
     throw new Error('A biblioteca JSZip não foi carregada. Conecte-se à internet e tente novamente.');
   }
+  const pendingWatermarks = [];
+  const makeWatermarkContext = (substation, subject, description) => ({
+    substation: substation || 'SE',
+    subject: subject || '',
+    description
+  });
   const workbook = createSurveyWorkbook(survey);
   const zip = new window.JSZip();
   const workFolder = zip.folder(safeArchiveName(survey.obra.numero || survey.obra.nomeServico));
@@ -762,27 +773,49 @@ async function gerarZipCompleto(survey) {
 
   survey.subestacoes.forEach((substation, seIndex) => {
     const seFolder = workFolder.folder(safeArchiveName(substation.nome || `SE_${seIndex + 1}`));
-    addPhotosToZip(seFolder, substation.foto_observacao_se, 'Foto_Observacoes_Gerais_SE');
+    addPhotosToZip(
+      seFolder,
+      substation.foto_observacao_se,
+      'Foto_Observacoes_Gerais_SE',
+      makeWatermarkContext(substation.nome, substation.nome, 'Foto das observações gerais da subestação'),
+      pendingWatermarks
+    );
     substation.transformadores.forEach((transformer, transformerIndex) => {
       const transformerFolder = seFolder
         .folder('Transformadores')
         .folder(safeArchiveName(transformer.nome || `Trafo_${transformerIndex + 1}`));
-      addPhotosToZip(transformerFolder, transformer.fotos.transformador, `Foto_Trafo_${transformerIndex + 1}`);
-      addPhotosToZip(transformerFolder, transformer.fotos.placa, `Placa_Trafo_${transformerIndex + 1}`);
-      addPhotosToZip(transformerFolder, transformer.fotos.resistorPlaca, `Placa_Resistor_Trafo_${transformerIndex + 1}`);
-      addPhotosToZip(transformerFolder, transformer.fotos.resistorPainel, `Painel_Resistor_Trafo_${transformerIndex + 1}`);
+      const transformerName = transformer.nome || `Transformador ${transformerIndex + 1}`;
+      const transformerContext = (description) =>
+        makeWatermarkContext(substation.nome, transformerName, description);
+      addPhotosToZip(transformerFolder, transformer.fotos.transformador,
+        `Foto_Trafo_${transformerIndex + 1}`, transformerContext(`Foto do ${transformerName}`), pendingWatermarks);
+      addPhotosToZip(transformerFolder, transformer.fotos.placa,
+        `Placa_Trafo_${transformerIndex + 1}`, transformerContext(`Placa do transformador ${transformerName}`), pendingWatermarks);
+      addPhotosToZip(transformerFolder, transformer.fotos.resistorPlaca,
+        `Placa_Resistor_Trafo_${transformerIndex + 1}`, transformerContext(`Placa do resistor do TRAFO ${transformerName}`), pendingWatermarks);
+      addPhotosToZip(transformerFolder, transformer.fotos.resistorPainel,
+        `Painel_Resistor_Trafo_${transformerIndex + 1}`, transformerContext(`Painel do resistor do TRAFO ${transformerName}`), pendingWatermarks);
     });
 
     substation.demaisEquipamentos.forEach((equipment, equipmentIndex) => {
       const equipmentFolder = seFolder
         .folder('Equipamentos_MT')
         .folder(safeArchiveName(equipment.nome || `Equipamento_${equipmentIndex + 1}`));
-      addPhotosToZip(equipmentFolder, equipment.fotos, `Foto_Equipamento_${equipmentIndex + 1}`);
+      addPhotosToZip(
+        equipmentFolder,
+        equipment.fotos,
+        `Foto_Equipamento_${equipmentIndex + 1}`,
+        makeWatermarkContext(substation.nome, equipment.nome || 'Equipamento de MT', `Equipamento ${equipmentIndex + 1}`),
+        pendingWatermarks
+      );
     });
 
     substation.paineis.forEach((panel, panelIndex) => {
       const data = panel.dadosPainel;
       const panelFolder = seFolder.folder(safeArchiveName(data.nome || `Painel_${panelIndex + 1}`));
+      const panelName = data.nome || 'Painel';
+      const panelContext = description =>
+        makeWatermarkContext(substation.nome, panelName, description);
       const photoNames = {
         foto_identificacao: 'Foto_Identificacao_Painel',
         foto_unifilar: 'Foto_Unifilar',
@@ -791,35 +824,60 @@ async function gerarZipCompleto(survey) {
         foto_suportabilidade_disjuntor: 'Foto_Suportabilidade_Disjuntor',
         fotos_placas_motores_mt: 'Placa_Motor_MT'
       };
+      const photoDescriptions = {
+        foto_identificacao: 'Foto de identificação do painel',
+        foto_unifilar: 'Foto do Unifilar',
+        foto_painel_completo: 'Foto completa do painel',
+        foto_suportabilidades: 'Foto da suportabilidade do painel',
+        foto_suportabilidade_disjuntor: 'Foto da suportabilidade do disjuntor',
+        fotos_placas_motores_mt: 'Placa dos motores de MT'
+      };
       Object.entries(photoNames).forEach(([key, filename]) => {
-        addPhotosToZip(panelFolder, data.fotos[key], filename);
+        addPhotosToZip(panelFolder, data.fotos[key], filename, panelContext(photoDescriptions[key]), pendingWatermarks);
       });
       data.fotos.fotos_colunas.forEach((photos, index) => {
-        addPhotosToZip(panelFolder, photos, `Foto_Coluna_${index + 1}`);
+        addPhotosToZip(panelFolder, photos, `Foto_Coluna_${index + 1}`,
+          panelContext(`Foto da Coluna ${index + 1}`), pendingWatermarks);
       });
       const coordination = data.coordenacaoSeletividade;
       const coordinationFolder = panelFolder.folder('Seletividade_Coordenacao');
       coordination.relesProtecao.forEach((relay, index) => {
-        addPhotosToZip(coordinationFolder, relay.fotosModeloOrderCode, `Rele_Protecao_${index + 1}_Modelo_Order_Code`);
+        addPhotosToZip(coordinationFolder, relay.fotosModeloOrderCode, `Rele_Protecao_${index + 1}_Modelo_Order_Code`,
+          panelContext(`Relé de proteção ${index + 1} — modelo e order code`), pendingWatermarks);
       });
       coordination.disjuntoresLSIG.forEach((breaker, index) => {
-        addPhotosToZip(coordinationFolder, breaker.fotosAjustes, `Disjuntor_LSIG_${index + 1}_Ajustes`);
+        addPhotosToZip(coordinationFolder, breaker.fotosAjustes, `Disjuntor_LSIG_${index + 1}_Ajustes`,
+          panelContext(`Disjuntor LSIG ${index + 1} — ajustes`), pendingWatermarks);
       });
-      addPhotosToZip(coordinationFolder, coordination.fotosTCs, 'Foto_TCs');
-      addPhotosToZip(coordinationFolder, coordination.fotosTPs, 'Foto_TPs');
+      addPhotosToZip(coordinationFolder, coordination.fotosTCs, 'Foto_TCs',
+        panelContext('Foto dos TCs'), pendingWatermarks);
+      addPhotosToZip(coordinationFolder, coordination.fotosTPs, 'Foto_TPs',
+        panelContext('Foto dos TPs'), pendingWatermarks);
       coordination.relesInteligentes.forEach((relay, index) => {
-        addPhotosToZip(coordinationFolder, relay.fotosModelo, `Rele_Inteligente_${index + 1}_Modelo`);
+        addPhotosToZip(coordinationFolder, relay.fotosModelo, `Rele_Inteligente_${index + 1}_Modelo`,
+          panelContext(`Relé inteligente ${index + 1} — modelo`), pendingWatermarks);
       });
-      addPhotosToZip(coordinationFolder, coordination.fotosDispositivosProtecaoBT, 'Dispositivos_Protecao_BT');
+      addPhotosToZip(coordinationFolder, coordination.fotosDispositivosProtecaoBT, 'Dispositivos_Protecao_BT',
+        panelContext('Fotos dos dispositivos de proteção que o painel possui'), pendingWatermarks);
 
       const incident = data.energiaIncidente;
       const incidentFolder = panelFolder.folder('Energia_Incidente');
-      addPhotosToZip(incidentFolder, incident.fotosReleArco, 'Rele_Arco');
-      addPhotosToZip(incidentFolder, incident.compartimentos.entrada.fotos, 'Compartimento_Entrada');
-      addPhotosToZip(incidentFolder, incident.compartimentos.menor.fotos, 'Menor_Compartimento');
+      addPhotosToZip(incidentFolder, incident.fotosReleArco, 'Rele_Arco',
+        panelContext('Foto do relé de arco'), pendingWatermarks);
+      ['entrada', 'menor'].forEach(name => {
+        const compartment = incident.compartimentos[name];
+        const title = name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento';
+        const dimensions = ['altura', 'largura', 'profundidade']
+          .map(dimension => compartment[dimension] || '—')
+          .join(' x ');
+        addPhotosToZip(incidentFolder, compartment.fotos,
+          name === 'entrada' ? 'Compartimento_Entrada' : 'Menor_Compartimento',
+          panelContext(`Foto do ${title} - Dimensões: ${dimensions} mm`), pendingWatermarks);
+      });
     });
   });
 
+  await Promise.all(pendingWatermarks);
   const archive = await zip.generateAsync({ type: 'blob' });
   return {
     archive,
@@ -949,6 +1007,14 @@ function paintPhotoPreview(preview, photos, onRemove) {
   });
 }
 
+function renderPhotoPreview(preview, photos) {
+  paintPhotoPreview(preview, photos, async index => {
+    photos.splice(index, 1);
+    renderPhotoPreview(preview, photos);
+    await persistCurrentSurvey();
+  });
+}
+
 function createInlineTipButton(modalId, label) {
   const button = document.createElement('button');
   button.className = 'btn btn-sm btn-outline-info py-0 px-1';
@@ -1002,14 +1068,7 @@ function addPhotoField(container, title, owner, key, photos, metadata = {}) {
   preview.className = 'photo-preview';
   field.append(label, preview);
   container.append(field);
-  paintPhotoPreview(preview, photos, index => {
-    photos.splice(index, 1);
-    paintPhotoPreview(preview, photos, removeIndex => {
-      photos.splice(removeIndex, 1);
-      persistCurrentSurvey();
-    });
-    persistCurrentSurvey();
-  });
+  renderPhotoPreview(preview, photos);
 }
 
 function createFieldset(legendText, className = 'col-12') {
@@ -1553,6 +1612,7 @@ function renderSubstations() {
     card.querySelector('.se-count-label').htmlFor = count.id;
     card.querySelector('.remove-se-button').dataset.seIndex = String(seIndex);
     card.querySelector('.add-panel-button').dataset.seIndex = String(seIndex);
+    card.querySelector('.save-substation-button').dataset.seIndex = String(seIndex);
     substation.paineis.forEach((panel, panelIndex) => {
       card.querySelector('.panel-list').append(renderPanel(panel, seIndex, panelIndex, expandedSections));
     });
@@ -1617,6 +1677,8 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
   ));
   card.querySelector('.remove-panel-button').dataset.seIndex = String(seIndex);
   card.querySelector('.remove-panel-button').dataset.panelIndex = String(panelIndex);
+  card.querySelector('.save-panel-button').dataset.seIndex = String(seIndex);
+  card.querySelector('.save-panel-button').dataset.panelIndex = String(panelIndex);
 
   const fields = [
     ['.panel-name-input', '.panel-name-label', data.nome, 'name'],
@@ -1671,14 +1733,7 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
     input.dataset.panelIndex = String(panelIndex);
     input.id = `photo-panel-se-${seIndex}-panel-${panelIndex}-${input.dataset.photoKey}`;
     const preview = card.querySelector(`[data-preview-key="${input.dataset.photoKey}"]`);
-    paintPhotoPreview(preview, data.fotos[input.dataset.photoKey], index => {
-      data.fotos[input.dataset.photoKey].splice(index, 1);
-      paintPhotoPreview(preview, data.fotos[input.dataset.photoKey], removeIndex => {
-        data.fotos[input.dataset.photoKey].splice(removeIndex, 1);
-        persistCurrentSurvey();
-      });
-      persistCurrentSurvey();
-    });
+    renderPhotoPreview(preview, data.fotos[input.dataset.photoKey]);
   });
   renderPanelColumnPhotos(card, data, seIndex, panelIndex);
   card.querySelector('.other-voltage-field').hidden = data.nivelTensao !== 'Outro';
@@ -1696,10 +1751,14 @@ function updatePanelConditions(card, data) {
   card.querySelector('.cable-fields').hidden = data.curtoCircuito.informacoesCabosDisponiveis !== 'sim';
   card.querySelector('.support-panel-photo-field').hidden =
     data.curtoCircuito.suportabilidadePainelDisponivel !== 'sim';
+  card.querySelector('.support-panel-photo-field input[type="file"]').required =
+    data.curtoCircuito.suportabilidadePainelDisponivel === 'sim';
   card.querySelector('.support-panel-justification').hidden =
     data.curtoCircuito.suportabilidadePainelDisponivel !== 'nao';
   card.querySelector('.support-breaker-photo-field').hidden =
     data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'sim';
+  card.querySelector('.support-breaker-photo-field input[type="file"]').required =
+    data.curtoCircuito.suportabilidadeDisjuntorDisponivel === 'sim';
   card.querySelector('.support-breaker-justification').hidden =
     data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'nao';
   const coordinationScope = currentSurvey.obra.escopoServico.includes('Coordenação e Seletividade');
@@ -1776,68 +1835,26 @@ function getPhotoArray(input) {
   return null;
 }
 
-function getPhotoWatermarkContext(input) {
-  const se = currentSurvey.subestacoes[Number(input.dataset.seIndex)];
-  const descriptionByKey = {
-    foto_observacao_se: 'Foto das observações gerais da subestação',
-    foto_identificacao: 'Foto de identificação do painel',
-    foto_unifilar: 'Foto do Unifilar',
-    foto_painel_completo: 'Foto completa do painel',
-    foto_suportabilidades: 'Foto da suportabilidade do painel',
-    foto_suportabilidade_disjuntor: 'Foto da suportabilidade do disjuntor',
-    fotos_placas_motores_mt: 'Placa dos motores de MT'
-  };
-  let subject = '';
-  if (input.dataset.photoOwner === 'transformer') {
-    subject = se?.transformadores[Number(input.dataset.transformerIndex)]?.nome || 'Transformador';
-  } else if (input.dataset.photoOwner === 'panel' || input.dataset.photoOwner === 'panelDynamic') {
-    subject = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex))?.dadosPainel.nome || 'Painel';
-  } else if (input.dataset.photoOwner === 'equipment') {
-    subject = se?.demaisEquipamentos[Number(input.dataset.equipmentIndex)]?.nome || 'Equipamento de MT';
-  } else if (input.dataset.photoOwner === 'substation') {
-    subject = se?.nome || 'Subestação';
-  }
-  const fieldDescription = input.closest('.photo-field')?.querySelector('.form-label')?.textContent?.trim();
-  let description = descriptionByKey[input.dataset.photoKey]
-    || input.dataset.photoDescription
-    || fieldDescription
-    || 'Foto do equipamento';
-  const compartmentMatch = input.dataset.photoPath?.match(/^energiaIncidente\.compartimentos\.(entrada|menor)\.fotos$/);
-  if (compartmentMatch) {
-    const panelCard = input.closest('.panel-card');
-    const dimensions = ['altura', 'largura', 'profundidade'].map(dimension =>
-      panelCard?.querySelector(
-        `[data-compartment="${compartmentMatch[1]}"][data-compartment-field="${dimension}"]`
-      )?.value.trim() || '—'
-    );
-    description += ` - Dimensões: ${dimensions.join(' x ')} mm`;
-  }
-  return {
-    substation: se?.nome || 'SE',
-    subject,
-    description
-  };
-}
-
-function decodeImageFile(file) {
-  if (typeof createImageBitmap === 'function') return createImageBitmap(file);
+function decodeImageFile(blob) {
+  if (typeof createImageBitmap === 'function') return createImageBitmap(blob);
   return new Promise((resolve, reject) => {
     const image = new Image();
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(blob);
     image.onload = () => {
       URL.revokeObjectURL(url);
       resolve(image);
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error(`Não foi possível abrir a imagem "${file.name}".`));
+      reject(new Error('Não foi possível abrir a imagem para a exportação.'));
     };
     image.src = url;
   });
 }
 
-async function watermarkPhoto(file, input) {
-  const image = await decodeImageFile(file);
+async function watermarkPhoto(photo, watermarkContext) {
+  const source = photoPayload(photo);
+  const image = await decodeImageFile(source.blob);
   const maxDimension = 1920;
   const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
   const canvas = document.createElement('canvas');
@@ -1846,16 +1863,20 @@ async function watermarkPhoto(file, input) {
   const context = canvas.getContext('2d');
   if (!context) {
     image.close?.();
-    throw new Error('Não foi possível preparar a marca d’água no Canvas.');
+    throw new Error('Não foi possível preparar a marca d’água no Canvas durante a exportação.');
   }
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
   image.close?.();
 
-  const { substation, subject, description } = getPhotoWatermarkContext(input);
   const now = new Date();
   const twoDigits = value => String(value).padStart(2, '0');
   const timestamp = `${twoDigits(now.getDate())}/${twoDigits(now.getMonth() + 1)}/${now.getFullYear()} ${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`;
-  const lines = [timestamp, substation, subject, description];
+  const lines = [
+    timestamp,
+    watermarkContext.substation,
+    watermarkContext.subject,
+    watermarkContext.description
+  ].filter(Boolean);
   const fontSize = Math.max(14, Math.min(48, Math.round(Math.min(canvas.width, canvas.height) * 0.04)));
   const lineHeight = Math.ceil(fontSize * 1.25);
   const padding = Math.ceil(fontSize * 0.7);
@@ -1873,20 +1894,40 @@ async function watermarkPhoto(file, input) {
     context.fillText(line, right, bottom, canvas.width - padding * 2);
     bottom -= lineHeight;
   }
-  const base64 = canvas.toDataURL('image/jpeg', 0.9);
-  if (base64.length * 0.75 > MAX_PHOTO_SIZE) {
-    throw new Error(`A foto "${file.name}" excede 12 MB após a marca d’água.`);
-  }
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(result => {
+      if (result) resolve(result);
+      else reject(new Error(`Não foi possível converter a foto "${source.name || 'sem nome'}" durante a exportação.`));
+    }, 'image/jpeg', 0.9);
+  });
+  if (blob.size > MAX_PHOTO_SIZE) throw new Error(`A foto "${source.name || 'sem nome'}" excede 12 MB após a marca d’água.`);
   return {
-    name: file.name.replace(/\.[^.]+$/, '') + '.jpg',
+    name: source.name.replace(/\.[^.]+$/, '') + '.jpg',
     type: 'image/jpeg',
-    blob: base64
+    blob
   };
+}
+
+function readPhotoAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error(`Não foi possível ler a foto "${file.name}".`));
+    };
+    reader.onerror = () => reject(reader.error || new Error(`Não foi possível ler a foto "${file.name}".`));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function handlePhotoInput(input) {
   const photos = getPhotoArray(input);
   if (!photos) return;
+  const preview = input.closest('.photo-field')?.querySelector('.photo-preview');
+  if (!preview) {
+    showAlert('Não foi possível localizar a pré-visualização da foto.', true);
+    return;
+  }
   const files = Array.from(input.files || []);
   const valid = files.filter(file => {
     if (!file.type.startsWith('image/')) {
@@ -1902,21 +1943,17 @@ async function handlePhotoInput(input) {
   input.value = '';
   for (const file of valid) {
     try {
-      photos.push(await watermarkPhoto(file, input));
+      photos.push({
+        name: file.name,
+        type: file.type,
+        blob: await readPhotoAsDataUrl(file)
+      });
     } catch (error) {
-      console.error(`Não foi possível adicionar marca d’água à foto "${file.name}".`, error);
-      showAlert(error.message || `Não foi possível processar a foto "${file.name}".`, true);
+      console.error(`Não foi possível adicionar a foto "${file.name}".`, error);
+      showAlert(error.message || `Não foi possível adicionar a foto "${file.name}".`, true);
     }
   }
-  const preview = input.closest('.photo-field').querySelector('.photo-preview');
-  paintPhotoPreview(preview, photos, index => {
-    photos.splice(index, 1);
-    paintPhotoPreview(preview, photos, removeIndex => {
-      photos.splice(removeIndex, 1);
-      persistCurrentSurvey();
-    });
-    persistCurrentSurvey();
-  });
+  renderPhotoPreview(preview, photos);
   await persistCurrentSurvey();
 }
 
@@ -2107,10 +2144,15 @@ function focusPanelRequirement(seIndex, panelIndex, target, message) {
   return false;
 }
 
-function validatePanelRequirements() {
+function validatePanelRequirements({
+  seIndex: seIndexFilter = null,
+  panelIndex: panelIndexFilter = null,
+  validateEquipment = true
+} = {}) {
   const scopes = currentSurvey.obra.escopoServico;
   for (const [seIndex, substation] of currentSurvey.subestacoes.entries()) {
-    if (substation.possuiDemaisEquipamentos === 'sim') {
+    if (seIndexFilter !== null && seIndex !== Number(seIndexFilter)) continue;
+    if (validateEquipment && substation.possuiDemaisEquipamentos === 'sim') {
       const incompleteEquipmentIndex = substation.demaisEquipamentos.findIndex(item => !item.nome.trim());
       if (incompleteEquipmentIndex !== -1) {
         const seCard = substationList.querySelector(`.substation-card[data-se-index="${seIndex}"]`);
@@ -2127,6 +2169,7 @@ function validatePanelRequirements() {
       }
     }
     for (const [panelIndex, panel] of substation.paineis.entries()) {
+      if (panelIndexFilter !== null && panelIndex !== Number(panelIndexFilter)) continue;
       const data = panel.dadosPainel;
       const coordination = data.coordenacaoSeletividade;
       if (scopes.includes('Curto-circuito')) {
@@ -2524,8 +2567,81 @@ substationList.addEventListener('hidden.bs.collapse', event => {
   }
 });
 
+function hasCapturedPhoto(input) {
+  const photos = getPhotoArray(input) || [];
+  const storedPhoto = asPhotoArray(photos).some(photo => {
+    const value = photo && typeof photo === 'object'
+      ? (photo.blob ?? photo.base64 ?? photo.data)
+      : photo;
+    if (value instanceof Blob) return value.size > 0;
+    if (typeof value !== 'string') return false;
+    return /^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)
+      || /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+  });
+  if (storedPhoto) return true;
+
+  const previewImage = input.closest('.photo-field')?.querySelector('.photo-preview img');
+  const previewSource = previewImage?.getAttribute('src') || '';
+  return previewSource.startsWith('blob:')
+    || /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(previewSource);
+}
+
+function validateSaveContainer(container) {
+  for (const element of container.querySelectorAll('[required]')) {
+    if (element.closest('[hidden]')) continue;
+
+    // Campos file são limpos após a conversão; valide os dados persistidos, não o input.
+    if (element.matches('input[type="file"]')) {
+      if (hasCapturedPhoto(element)) continue;
+      const photoLabel = element.closest('.photo-field')?.querySelector('.form-label')?.textContent.trim()
+        || 'Foto obrigatória';
+      window.alert(`A foto obrigatória não foi capturada: ${photoLabel}`);
+      element.focus();
+      return false;
+    }
+
+    // Aplica a validação nativa do navegador antes de gravar qualquer dado.
+    if (!element.checkValidity()) {
+      element.reportValidity();
+      return false;
+    }
+  }
+  return true;
+}
+
+async function salvarPainel(saveButton) {
+  const panelCard = saveButton.closest('.panel-card');
+  if (!panelCard || !validateSaveContainer(panelCard)) return false;
+  const seIndex = Number(saveButton.dataset.seIndex);
+  const panelIndex = Number(saveButton.dataset.panelIndex);
+  if (!validatePanelRequirements({ seIndex, panelIndex, validateEquipment: false })) return false;
+  if (!(await persistCurrentSurvey())) return false;
+  window.alert('Painel salvo');
+  return true;
+}
+
+async function salvarSE(saveButton) {
+  const substationCard = saveButton.closest('.substation-card');
+  if (!substationCard || !validateSaveContainer(substationCard)) return false;
+  const seIndex = Number(saveButton.dataset.seIndex);
+  if (!validatePanelRequirements({ seIndex })) return false;
+  if (!(await persistCurrentSurvey())) return false;
+  window.alert('SE salva');
+  return true;
+}
+
 substationList.addEventListener('click', async event => {
   const target = event.target;
+  const savePanel = target.closest('.save-panel-button');
+  if (savePanel) {
+    await salvarPainel(savePanel);
+    return;
+  }
+  const saveSubstation = target.closest('.save-substation-button');
+  if (saveSubstation) {
+    await salvarSE(saveSubstation);
+    return;
+  }
   const removeEquipment = target.closest('[data-remove-equipment]');
   if (removeEquipment) {
     const se = currentSurvey.subestacoes[Number(removeEquipment.dataset.seIndex)];

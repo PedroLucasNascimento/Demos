@@ -1,4 +1,4 @@
-const CACHE_NAME = 'campo-eletrico-v10';
+const CACHE_NAME = 'campo-eletrico-v11';
 const APP_SHELL = [
   './',
   './index.html',
@@ -16,7 +16,10 @@ const CDN_ASSETS = [
 ];
 const OPTIONAL_ASSETS = [
   './assets/images/entrada_painel.png',
-  './assets/images/menor_gaveta.png'
+  './assets/images/menor_gaveta.png',
+  './assets/images/modelo_order_code_rele.png',
+  './assets/images/modo_operacao_transformadores.png',
+  './assets/images/disparador_lsig.png'
 ];
 
 self.addEventListener('install', event => {
