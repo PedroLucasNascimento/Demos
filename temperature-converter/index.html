@@ -10,7 +10,6 @@
     <link rel="manifest" href="./manifest.json">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="./converter.css">
-    <script src="https://alcdn.msauth.net/browser/2.30.0/js/msal-browser.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
     <title>Levantamento de Campo</title>
@@ -181,7 +180,10 @@
                 <div class="form-check form-check-inline"><input class="form-check-input same-bus-input" type="radio" value="sim" data-se-field="podeAlimentarMesmoBarramento"><label class="form-check-label">Sim</label></div>
                 <div class="form-check form-check-inline"><input class="form-check-input same-bus-input" type="radio" value="nao" data-se-field="podeAlimentarMesmoBarramento"><label class="form-check-label">Não</label></div>
                 <fieldset class="operation-modes mt-2" hidden>
-                  <legend class="form-label">Modo de operação (selecione todas as opções aplicáveis)</legend>
+                  <legend class="form-label d-flex align-items-center gap-2">
+                    <span>Modo de operação (selecione todas as opções aplicáveis)</span>
+                    <button class="btn btn-sm btn-outline-info py-0 px-1" type="button" data-bs-toggle="modal" data-bs-target="#modalDicaModoOperacao" aria-label="Dica sobre o modo de operação dos transformadores">ℹ️</button>
+                  </legend>
                   <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="Paralelo" data-mode-option><label class="form-check-label">Paralelo</label></div>
                   <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="L" data-mode-option><label class="form-check-label">L</label></div>
                   <div class="form-check form-check-inline"><input class="form-check-input se-mode-input" type="checkbox" value="Duplo I" data-mode-option><label class="form-check-label">Duplo I</label></div>
@@ -315,7 +317,7 @@
         <div class="column-photo-fields photo-grid mt-2"></div>
 
         <section class="short-circuit-section mt-4" hidden>
-          <h5 class="form-section-title">Informações de Curto-circuito</h5>
+          <h5 class="form-section-title">Estudo de Curto-circuito</h5>
           <div class="row g-3">
             <fieldset class="col-md-6">
               <legend class="form-label">É possível obter suportabilidades do painel? <span class="text-danger">*</span></legend>
@@ -332,12 +334,12 @@
               </div>
             </fieldset>
             <fieldset class="col-md-6">
-              <legend class="form-label">É possível obter suportabilidades do disjuntor de entrada? <span class="text-danger">*</span></legend>
+              <legend class="form-label">Foi possível tirar foto da suportabilidade ou do modelo do disjuntor? <span class="text-danger">*</span></legend>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="sim" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Sim</label></div>
               <div class="form-check form-check-inline"><input class="form-check-input" type="radio" value="nao" data-short-field="suportabilidadeDisjuntorDisponivel" required><label class="form-check-label">Não</label></div>
               <div class="support-breaker-photo-field mt-2" hidden>
-                <label class="form-label d-block">Foto da suportabilidade do disjuntor de entrada <span class="text-danger">*</span></label>
-                <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade do disjuntor de entrada</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
+                <label class="form-label d-block">Foto da suportabilidade ou do modelo do disjuntor <span class="text-danger">*</span></label>
+                <label class="btn btn-sm btn-outline-secondary photo-button"><span>＋ Tirar foto da suportabilidade ou do modelo do disjuntor</span><input class="photo-input" type="file" accept="image/*" data-photo-key="foto_suportabilidade_disjuntor"></label>
                 <div class="photo-preview" data-preview-key="foto_suportabilidade_disjuntor"></div>
               </div>
               <div class="support-breaker-justification mt-2" hidden>
@@ -396,7 +398,7 @@
           </div>
           <div class="modal-body">
             <img src="./assets/images/entrada_painel.png" alt="Gabarito de medição do compartimento de entrada do painel" class="img-fluid rounded border mb-2 measurement-tip-image">
-            <p class="mb-0">⚠️ <strong>Atenção:</strong> Meça exclusivamente o vão útil ou a gaveta de força principal (entrada) onde está instalado o disjuntor geral, conforme indicado em amarelo. A imagem é apenas uma ilustração e trata-se de um exemplo de gabarito.</p>
+            <p class="mb-0">A imagem destaca em amarelo os limites exatos para a medição deste compartimento. O exemplo ilustra um painel do tipo QGBT/CCM; embora o compartimento de entrada possa variar visualmente em outros tipos de painéis, os critérios e limites de medição permanecem os mesmos.</p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
@@ -413,7 +415,57 @@
           </div>
           <div class="modal-body">
             <img src="./assets/images/menor_gaveta.png" alt="Gabarito de medição do menor compartimento de gaveta extraível" class="img-fluid rounded border mb-2 measurement-tip-image">
-            <p class="mb-0">⚠️ <strong>Atenção:</strong> Meça os limites exatos da menor gaveta operacional de força ativa, considerando a altura, a largura e a profundidade do vão de inserção, conforme destacado em amarelo. A imagem é apenas uma ilustração e trata-se de um exemplo de gabarito.</p>
+            <p class="mb-0">A imagem destaca em amarelo os limites para medição. Este é o exemplo de uma gaveta genérica de CCM. Mesmo que o menor compartimento tenha um formato diferente em outros painéis, o critério para a tomada de dimensões segue o mesmo padrão ilustrado.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="modalDicaRele" tabindex="-1" aria-labelledby="modalDicaReleLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5" id="modalDicaReleLabel">Modelo e Order Code do Relé</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <img src="./assets/images/modelo_order_code_rele.png" alt="Exemplo de localização do modelo e Order Code em um relé" class="img-fluid rounded border mb-2">
+            <p class="mb-0">A área em destaque na imagem é apenas um exemplo de onde encontrar o modelo e o 'Order Code' de um relé. Embora o formato varie entre fabricantes, geralmente é um código alfanumérico localizado na etiqueta lateral ou traseira do equipamento.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="modalDicaModoOperacao" tabindex="-1" aria-labelledby="modalDicaModoOperacaoLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5" id="modalDicaModoOperacaoLabel">Modo de operação dos Transformadores</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <img src="./assets/images/modo_operacao_transformadores.png" alt="Ilustração dos modos de operação dos transformadores" class="img-fluid rounded border">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="modalDicaLSIG" tabindex="-1" aria-labelledby="modalDicaLSIGLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5" id="modalDicaLSIGLabel">Disjuntores com disparador LSIG</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <img src="./assets/images/disparador_lsig.png" alt="Exemplo de disparador LSIG destacado em vermelho" class="img-fluid rounded border mb-2">
+            <p class="mb-0">O destaque em vermelho na imagem ilustra um exemplo de disparador. Trata-se de um modelo genérico exclusivo para fins de identificação visual.</p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>

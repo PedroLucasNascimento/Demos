@@ -8,14 +8,6 @@ const MAX_EQUIPMENT_PER_SE = 30;
 const MAX_PROTECTION_DEVICES_PER_PANEL = 60;
 const MAX_PANEL_COLUMNS = 60;
 const MAX_PHOTO_SIZE = 12 * 1024 * 1024;
-const msalConfig = {
-  auth: {
-    clientId: '',
-    authority: 'https://login.microsoftonline.com/organizations',
-    redirectUri: window.location.origin + window.location.pathname
-  },
-  cache: { cacheLocation: 'sessionStorage' }
-};
 
 const SUBSTATION_TEMPLATE = document.getElementById('substation-template');
 const PANEL_TEMPLATE = document.getElementById('panel-template');
@@ -124,7 +116,6 @@ let savedSurveys = [];
 let currentStep = 1;
 let saveTimer;
 let alertTimer;
-let msalInstance;
 
 function clone(value) {
   return structuredClone(value);
@@ -848,116 +839,6 @@ async function exportarZipCompleto(survey) {
   };
 }
 
-function obterMsalInstance() {
-  if (!window.msal?.PublicClientApplication) {
-    throw new Error('A biblioteca MSAL não foi carregada. Conecte-se à internet e tente novamente.');
-  }
-  if (!msalConfig.auth.clientId.trim()) {
-    throw new Error('Configure o clientId da aplicação Microsoft Entra no app.js antes de conectar ao OneDrive.');
-  }
-  if (!msalInstance) msalInstance = new window.msal.PublicClientApplication(msalConfig);
-  return msalInstance;
-}
-
-async function conectarOneDrive() {
-  const instance = obterMsalInstance();
-  const scopes = ['Files.ReadWrite'];
-  const loginResult = await instance.loginPopup({ scopes });
-  if (!loginResult.account) throw new Error('A autenticação não identificou uma conta corporativa.');
-
-  try {
-    const tokenResult = await instance.acquireTokenSilent({ scopes, account: loginResult.account });
-    if (!tokenResult.accessToken) throw new Error('A autenticação não retornou um token de acesso.');
-    return tokenResult.accessToken;
-  } catch (error) {
-    const isInteractionRequired = typeof window.msal.InteractionRequiredAuthError === 'function'
-      && error instanceof window.msal.InteractionRequiredAuthError;
-    const interactionErrorCodes = ['interaction_required', 'consent_required', 'login_required'];
-    if (!isInteractionRequired && !interactionErrorCodes.includes(error.errorCode)) throw error;
-    const tokenResult = await instance.acquireTokenPopup({ scopes, account: loginResult.account });
-    if (!tokenResult.accessToken) throw new Error('A autenticação não retornou um token de acesso.');
-    return tokenResult.accessToken;
-  }
-}
-
-async function graphRequest(url, accessToken, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(options.headers || {})
-    }
-  });
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Microsoft Graph (${response.status}): ${errorBody || response.statusText}`);
-  }
-  return response;
-}
-
-async function garantirPastaOneDrive(accessToken, parentId, folderName) {
-  const graphRoot = 'https://graph.microsoft.com/v1.0/me/drive';
-  const childrenUrl = parentId
-    ? `${graphRoot}/items/${encodeURIComponent(parentId)}/children`
-    : `${graphRoot}/root/children`;
-  const createResponse = await fetch(childrenUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      name: folderName,
-      folder: {},
-      '@microsoft.graph.conflictBehavior': 'fail'
-    })
-  });
-  if (createResponse.ok) return (await createResponse.json()).id;
-  if (createResponse.status !== 409) {
-    const errorBody = await createResponse.text();
-    throw new Error(`Não foi possível criar a pasta no OneDrive (${createResponse.status}): ${errorBody || createResponse.statusText}`);
-  }
-
-  const escapedName = encodeURIComponent(folderName);
-  const existingUrl = parentId
-    ? `${graphRoot}/items/${encodeURIComponent(parentId)}:/${escapedName}`
-    : `${graphRoot}/root:/${escapedName}`;
-  const existing = await graphRequest(existingUrl, accessToken);
-  const folder = await existing.json();
-  if (!folder.id) throw new Error(`Não foi possível localizar a pasta "${folderName}" no OneDrive.`);
-  return folder.id;
-}
-
-async function uploadParaOneDrive(accessToken, levantamentoId) {
-  const survey = savedSurveys.find(item => item.id === levantamentoId);
-  if (!survey) throw new Error('O levantamento selecionado não está mais disponível neste dispositivo.');
-
-  const archiveData = await gerarZipCompleto(survey);
-  if (archiveData.archive.size > 250 * 1024 * 1024) {
-    throw new Error('O pacote ZIP excede o limite de 250 MB para upload direto ao OneDrive.');
-  }
-  const baseFolderId = await garantirPastaOneDrive(accessToken, null, 'Levantamentos_PWA');
-  const workFolderName = safeArchiveName(
-    [survey.obra.numero, survey.obra.cliente || survey.obra.nomeServico].filter(Boolean).join(' - ')
-  );
-  const workFolderId = await garantirPastaOneDrive(accessToken, baseFolderId, workFolderName);
-  const fileName = 'Pacote_Levantamento.zip';
-  const uploadUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workFolderId)}:/${encodeURIComponent(fileName)}:/content`;
-  const response = await graphRequest(uploadUrl, accessToken, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/zip' },
-    body: archiveData.archive
-  });
-  if (response.status !== 200 && response.status !== 201) {
-    throw new Error(`O OneDrive retornou um status inesperado (${response.status}).`);
-  }
-  return {
-    substations: archiveData.substations,
-    panels: archiveData.panels,
-    photos: archiveData.photos
-  };
-}
-
 function renderHome() {
   const list = document.getElementById('saved-surveys');
   const empty = document.getElementById('home-empty');
@@ -983,7 +864,6 @@ function renderHome() {
           <button class="btn btn-sm btn-primary" type="button" data-open-survey="${survey.id}">Continuar</button>
           <button class="btn btn-sm btn-secondary" type="button" data-export-survey="${survey.id}" data-export-format="excel">Exportar Apenas Planilha (.xlsx)</button>
           <button class="btn btn-sm btn-success" type="button" data-export-survey="${survey.id}" data-export-format="zip">Exportar Levantamento Completo (.zip)</button>
-          <button class="btn btn-sm btn-outline-primary" type="button" data-upload-survey="${survey.id}">☁️ Fazer Upload para o OneDrive</button>
           <button class="btn btn-sm btn-outline-danger" type="button" data-delete-survey="${survey.id}">Excluir</button>
         </div>
       </div>`;
@@ -1069,12 +949,34 @@ function paintPhotoPreview(preview, photos, onRemove) {
   });
 }
 
+function createInlineTipButton(modalId, label) {
+  const button = document.createElement('button');
+  button.className = 'btn btn-sm btn-outline-info py-0 px-1';
+  button.type = 'button';
+  button.dataset.bsToggle = 'modal';
+  button.dataset.bsTarget = `#${modalId}`;
+  button.setAttribute('aria-label', label);
+  button.textContent = 'ℹ️';
+  return button;
+}
+
 function addPhotoField(container, title, owner, key, photos, metadata = {}) {
   const field = document.createElement('div');
   field.className = `photo-field ${metadata.photoFieldClass || 'col-md-6'}`;
   const heading = document.createElement('span');
-  heading.className = 'form-label d-block';
+  heading.className = `form-label d-block${metadata.helpModalId ? ' mb-0' : ''}`;
   heading.textContent = title;
+  if (metadata.helpModalId) {
+    const headingRow = document.createElement('div');
+    headingRow.className = 'd-flex align-items-center gap-2 mb-1';
+    headingRow.append(heading, createInlineTipButton(
+      metadata.helpModalId,
+      metadata.helpLabel || `Dica: ${title}`
+    ));
+    field.append(headingRow);
+  } else {
+    field.append(heading);
+  }
   const label = document.createElement('label');
   label.className = 'btn btn-sm btn-outline-secondary photo-button';
   const buttonText = document.createElement('span');
@@ -1098,7 +1000,7 @@ function addPhotoField(container, title, owner, key, photos, metadata = {}) {
   label.append(buttonText, input);
   const preview = document.createElement('div');
   preview.className = 'photo-preview';
-  field.append(heading, label, preview);
+  field.append(label, preview);
   container.append(field);
   paintPhotoPreview(preview, photos, index => {
     photos.splice(index, 1);
@@ -1197,7 +1099,14 @@ function addPanelExtraCount(container, labelText, sectionName, countField, array
   input.dataset.panelIndex = String(metadata.panelIndex);
   label.htmlFor = input.id;
   label.textContent = labelText;
-  wrapper.append(label, input);
+  if (metadata.helpModalId) {
+    const labelRow = document.createElement('div');
+    labelRow.className = 'd-flex align-items-center gap-2';
+    labelRow.append(label, createInlineTipButton(metadata.helpModalId, metadata.helpLabel || `Dica: ${labelText}`));
+    wrapper.append(labelRow, input);
+  } else {
+    wrapper.append(label, input);
+  }
   container.append(wrapper);
 }
 
@@ -1254,13 +1163,23 @@ function renderCoordinationFields(card, data, seIndex, panelIndex) {
     relayPhoto.dataset.relayModelPhotoIndex = String(index);
     relayPhoto.hidden = relay.backupObtido !== 'nao';
     addPanelDynamicPhoto(relayPhoto, `Relé de proteção ${index + 1} — modelo e order code`, path,
-      relay.fotosModeloOrderCode, { seIndex, panelIndex });
+      relay.fotosModeloOrderCode, {
+        seIndex,
+        panelIndex,
+        helpModalId: 'modalDicaRele',
+        helpLabel: 'Dica sobre modelo e Order Code do relé'
+      });
     item.append(relayPhoto);
     base.append(item);
   });
 
   addPanelExtraCount(base, 'Quantidade de disjuntores com disparador LSIG?', 'coordenacaoSeletividade',
-    'quantidadeDisjuntoresLSIG', 'disjuntoresLSIG', coordination.disjuntoresLSIG.length, { seIndex, panelIndex });
+    'quantidadeDisjuntoresLSIG', 'disjuntoresLSIG', coordination.disjuntoresLSIG.length, {
+      seIndex,
+      panelIndex,
+      helpModalId: 'modalDicaLSIG',
+      helpLabel: 'Dica sobre disjuntores com disparador LSIG'
+    });
   coordination.disjuntoresLSIG.forEach((breaker, index) => {
     const item = document.createElement('div');
     item.className = 'row g-3 border rounded p-3 mx-0 mt-3';
@@ -1879,13 +1798,24 @@ function getPhotoWatermarkContext(input) {
     subject = se?.nome || 'Subestação';
   }
   const fieldDescription = input.closest('.photo-field')?.querySelector('.form-label')?.textContent?.trim();
+  let description = descriptionByKey[input.dataset.photoKey]
+    || input.dataset.photoDescription
+    || fieldDescription
+    || 'Foto do equipamento';
+  const compartmentMatch = input.dataset.photoPath?.match(/^energiaIncidente\.compartimentos\.(entrada|menor)\.fotos$/);
+  if (compartmentMatch) {
+    const panelCard = input.closest('.panel-card');
+    const dimensions = ['altura', 'largura', 'profundidade'].map(dimension =>
+      panelCard?.querySelector(
+        `[data-compartment="${compartmentMatch[1]}"][data-compartment-field="${dimension}"]`
+      )?.value.trim() || '—'
+    );
+    description += ` - Dimensões: ${dimensions.join(' x ')} mm`;
+  }
   return {
     substation: se?.nome || 'SE',
     subject,
-    description: descriptionByKey[input.dataset.photoKey]
-      || input.dataset.photoDescription
-      || fieldDescription
-      || 'Foto do equipamento'
+    description
   };
 }
 
@@ -2649,25 +2579,6 @@ substationList.addEventListener('click', async event => {
 });
 
 document.getElementById('saved-surveys').addEventListener('click', async event => {
-  const uploadButton = event.target.closest('[data-upload-survey]');
-  if (uploadButton) {
-    const originalLabel = uploadButton.textContent;
-    uploadButton.disabled = true;
-    uploadButton.textContent = 'Fazendo upload...';
-    try {
-      const accessToken = await conectarOneDrive();
-      const result = await uploadParaOneDrive(accessToken, uploadButton.dataset.uploadSurvey);
-      showAlert(`Upload concluído: ${result.substations} SE(s), ${result.panels} painel(is) e ${result.photos} foto(s).`);
-    } catch (error) {
-      console.error('Não foi possível enviar o levantamento para o OneDrive.', error);
-      showAlert(error.message || 'Não foi possível enviar o levantamento para o OneDrive.', true);
-    } finally {
-      uploadButton.disabled = false;
-      uploadButton.textContent = originalLabel;
-    }
-    return;
-  }
-
   const exportButton = event.target.closest('[data-export-survey]');
   if (exportButton) {
     const survey = savedSurveys.find(item => item.id === exportButton.dataset.exportSurvey);
