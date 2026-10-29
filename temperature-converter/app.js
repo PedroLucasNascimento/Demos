@@ -41,13 +41,19 @@ const modeloLevantamento = {
     quantidadeTransformadores: 1,
     transformadores: [{
       nome: '',
+      placaAcessivel: null,
+      possuiAterramentoEnrolamento: null,
       aterramentoPorResistor: null,
-      correnteResistor: '',
+      placaResistorAcessivel: null,
       fotos: { transformador: [], placa: [], resistorPlaca: [], resistorPainel: [] }
     }],
     possuiDemaisEquipamentos: null,
     demaisEquipamentos: [],
     observacoes: '',
+    informacoesColetadas: null,
+    justificativaInformacoesNaoColetadas: '',
+    possuiObservacaoAdicional: null,
+    observacaoAdicional: '',
     foto_observacao_se: [],
     paineis: [{
       id: null,
@@ -56,19 +62,32 @@ const modeloLevantamento = {
         tipo: '',
         nivelTensao: '',
         outroNivelTensao: '',
+        outroTipo: '',
+        configuracaoColunas: null,
         quantidadeColunas: 0,
-        possuiUnifilar: null,
         observacoes: '',
+        observacoesFinais: {
+          informacoesColetadas: null,
+          justificativaInformacoesNaoColetadas: '',
+          possuiObservacaoAdicional: null,
+          observacaoAdicional: ''
+        },
         curtoCircuito: {
           suportabilidadePainelDisponivel: null,
           justificativaSuportabilidadePainel: '',
           suportabilidadeDisjuntorDisponivel: null,
           justificativaSuportabilidadeDisjuntor: '',
           possuiMotoresMT: null,
+          quantidadeMotoresMT: 0,
+          motores: [],
           informacoesCabosDisponiveis: null,
           distanciaCabos: '',
           bitolaCabos: '',
-          quantidadeCabos: ''
+          quantidadeCabos: '',
+          cabos: [],
+          possuiInformacaoAdicionalDisjuntores: null,
+          informacaoAdicionalDisjuntores: '',
+          fotosInformacaoAdicionalDisjuntores: []
         },
         coordenacaoSeletividade: {
           quantidadeRelesProtecao: 0,
@@ -87,6 +106,7 @@ const modeloLevantamento = {
           possuiReleArco: null,
           fotosReleArco: [],
           ajustesReleArcoObtidos: null,
+          backupReleArcoPossivel: null,
           releArcoTrip: null,
           possuiCompartimentoUnico: null,
           compartimentos: {
@@ -96,8 +116,8 @@ const modeloLevantamento = {
         },
         fotos: {
           foto_identificacao: [],
-          foto_unifilar: [],
           foto_painel_completo: [],
+          foto_observacao_painel: [],
           foto_suportabilidades: [],
           foto_suportabilidade_disjuntor: [],
           fotos_placas_motores_mt: [],
@@ -134,11 +154,17 @@ function makePanel() {
 }
 
 function makeProtectionRelay() {
-  return { backupObtido: null, cubiculo: '', alimentacao: '', fotosModeloOrderCode: [] };
+  return {
+    backupObtido: null,
+    cubiculo: '',
+    alimentacao: '',
+    equipamentoProtegido: '',
+    fotosModeloOrderCode: []
+  };
 }
 
 function makeLsigBreaker() {
-  return { cubiculo: '', alimentacao: '', fotosAjustes: [] };
+  return { cubiculo: '', alimentacao: '', equipamentoProtegido: '', fotosAjustes: [] };
 }
 
 function makeIntelligentRelay() {
@@ -203,6 +229,10 @@ function normalizeSurvey(survey) {
     const legacyResistorAnswer = substation.aterramentoTrafoPorResistor
       ?? legacyShort.aterramentoTrafoPorResistor ?? null;
     substation.observacoes ||= '';
+    substation.informacoesColetadas ??= null;
+    substation.justificativaInformacoesNaoColetadas ||= '';
+    substation.possuiObservacaoAdicional ??= null;
+    substation.observacaoAdicional ||= '';
     substation.foto_observacao_se = asPhotoArray(substation.foto_observacao_se);
     substation.possuiDemaisEquipamentos ??= null;
     const legacyResistorPhotos = substation.fotosResistor || {
@@ -219,7 +249,9 @@ function normalizeSurvey(survey) {
     }
     substation.transformadores.forEach((transformer, transformerIndex) => {
       transformer.aterramentoPorResistor ??= legacyResistorAnswer;
-      transformer.correnteResistor ||= '';
+      transformer.placaAcessivel ??= null;
+      transformer.possuiAterramentoEnrolamento ??= transformer.aterramentoPorResistor === 'sim' ? 'sim' : null;
+      transformer.placaResistorAcessivel ??= null;
       transformer.fotos = {
         transformador: [],
         placa: [],
@@ -231,6 +263,7 @@ function normalizeSurvey(survey) {
       transformer.fotos.placa = asPhotoArray(transformer.fotos.placa);
       transformer.fotos.resistorPlaca = asPhotoArray(transformer.fotos.resistorPlaca);
       transformer.fotos.resistorPainel = asPhotoArray(transformer.fotos.resistorPainel);
+      delete transformer.correnteResistor;
       if (transformerIndex === 0 && transformer.fotos.resistorPlaca.length === 0) {
         transformer.fotos.resistorPlaca = asPhotoArray(legacyResistorPhotos.placa);
       }
@@ -258,11 +291,14 @@ function normalizeSurvey(survey) {
       data.nome ||= '';
       data.tipo ||= '';
       const legacyPanelTypes = {
-        'QGBT de MT': 'QGBT',
-        'QGBT de BT': 'QGBT',
+        'QGBT': 'Outros',
+        'QGBT de MT': 'Outros',
+        'QGBT de BT': 'Outros',
         'QD/QDL/QL/PNL': 'PNL/QDL/QL'
       };
+      if (legacyPanelTypes[data.tipo] === 'Outros') data.outroTipo ||= data.tipo;
       data.tipo = legacyPanelTypes[data.tipo] || data.tipo;
+      data.outroTipo ||= '';
       data.nivelTensao ||= '';
       const legacyPanelVoltages = {
         '34.5kV': '34.5 kV',
@@ -280,8 +316,16 @@ function normalizeSurvey(survey) {
         MAX_PANEL_COLUMNS,
         Number(data.quantidadeColunas) || data.fotos?.fotos_colunas?.length || 0
       ));
-      data.possuiUnifilar ??= null;
+      data.configuracaoColunas ||= data.quantidadeColunas > 1 ? 'diversas_colunas' : null;
+      delete data.possuiUnifilar;
       data.observacoes ||= '';
+      data.observacoesFinais = {
+        informacoesColetadas: null,
+        justificativaInformacoesNaoColetadas: '',
+        possuiObservacaoAdicional: null,
+        observacaoAdicional: '',
+        ...(data.observacoesFinais || {})
+      };
       data.curtoCircuito = {
         suportabilidadePainelDisponivel: oldShort.suportabilidadePainelDisponivel
           ?? (asPhotoArray(data.fotos?.foto_suportabilidades).length
@@ -294,11 +338,37 @@ function normalizeSurvey(survey) {
             : (oldShort.naoFoiPossivelObterSuportabilidade ? 'nao' : null)),
         justificativaSuportabilidadeDisjuntor: oldShort.justificativaSuportabilidadeDisjuntor || '',
         possuiMotoresMT: oldShort.possuiMotoresMT ?? null,
+        quantidadeMotoresMT: Number(oldShort.quantidadeMotoresMT) || 0,
+        motores: Array.isArray(oldShort.motores) ? oldShort.motores : [],
         informacoesCabosDisponiveis: oldShort.informacoesCabosDisponiveis ?? null,
         distanciaCabos: oldShort.distanciaCabos || '',
         bitolaCabos: oldShort.bitolaCabos || '',
-        quantidadeCabos: oldShort.quantidadeCabos || ''
+        quantidadeCabos: oldShort.quantidadeCabos || '',
+        cabos: Array.isArray(oldShort.cabos) ? oldShort.cabos : [],
+        possuiInformacaoAdicionalDisjuntores: oldShort.possuiInformacaoAdicionalDisjuntores ?? null,
+        informacaoAdicionalDisjuntores: oldShort.informacaoAdicionalDisjuntores || '',
+        fotosInformacaoAdicionalDisjuntores: asPhotoArray(oldShort.fotosInformacaoAdicionalDisjuntores)
       };
+      if (!data.curtoCircuito.cabos.length
+          && (data.curtoCircuito.distanciaCabos || data.curtoCircuito.bitolaCabos || data.curtoCircuito.quantidadeCabos)) {
+        data.curtoCircuito.cabos.push({
+          finalidade: '',
+          distancia: data.curtoCircuito.distanciaCabos,
+          bitola: data.curtoCircuito.bitolaCabos,
+          quantidadePorFase: data.curtoCircuito.quantidadeCabos
+        });
+      }
+      data.curtoCircuito.cabos = data.curtoCircuito.cabos.map(cable => ({
+        finalidade: cable.finalidade ?? cable.tipo ?? '',
+        distancia: '',
+        bitola: '',
+        quantidadePorFase: '',
+        ...cable
+      }));
+      data.curtoCircuito.cabos.forEach(cable => {
+        cable.finalidade = cable.finalidade ?? cable.tipo ?? '';
+        delete cable.tipo;
+      });
       const coordination = data.coordenacaoSeletividade || {};
       data.coordenacaoSeletividade = {
         quantidadeRelesProtecao: coordination.relesProtecao?.length || 0,
@@ -319,20 +389,40 @@ function normalizeSurvey(survey) {
           backupObtido: null,
           cubiculo: '',
           alimentacao: '',
+          equipamentoProtegido: '',
           fotosModeloOrderCode: [],
           ...relay,
           fotosModeloOrderCode: asPhotoArray(relay.fotosModeloOrderCode)
         }))
         : [];
+      data.coordenacaoSeletividade.relesProtecao.forEach(relay => {
+        relay.cubiculo = String(relay.cubiculo || '').match(/\d+/)?.[0] || '';
+        if (relay.alimentacao && !['Entrada', 'Alimentador'].includes(relay.alimentacao)) {
+          if (!relay.equipamentoProtegido) relay.equipamentoProtegido = relay.alimentacao;
+          relay.alimentacao = /entrada/i.test(relay.alimentacao) ? 'Entrada' : 'Alimentador';
+        } else if (relay.alimentacao) {
+          relay.alimentacao = relay.alimentacao.charAt(0).toUpperCase() + relay.alimentacao.slice(1).toLowerCase();
+        }
+      });
       data.coordenacaoSeletividade.disjuntoresLSIG = Array.isArray(data.coordenacaoSeletividade.disjuntoresLSIG)
         ? data.coordenacaoSeletividade.disjuntoresLSIG.map(breaker => ({
           cubiculo: '',
           alimentacao: '',
+          equipamentoProtegido: '',
           fotosAjustes: [],
           ...breaker,
           fotosAjustes: asPhotoArray(breaker.fotosAjustes)
         }))
         : [];
+      data.coordenacaoSeletividade.disjuntoresLSIG.forEach(breaker => {
+        breaker.cubiculo = String(breaker.cubiculo || '').match(/\d+/)?.[0] || '';
+        if (breaker.alimentacao && !['Entrada', 'Alimentador'].includes(breaker.alimentacao)) {
+          if (!breaker.equipamentoProtegido) breaker.equipamentoProtegido = breaker.alimentacao;
+          breaker.alimentacao = /entrada/i.test(breaker.alimentacao) ? 'Entrada' : 'Alimentador';
+        } else if (breaker.alimentacao) {
+          breaker.alimentacao = breaker.alimentacao.charAt(0).toUpperCase() + breaker.alimentacao.slice(1).toLowerCase();
+        }
+      });
       data.coordenacaoSeletividade.relesInteligentes = Array.isArray(data.coordenacaoSeletividade.relesInteligentes)
         ? data.coordenacaoSeletividade.relesInteligentes.map(relay => ({
           arquivoObtido: null,
@@ -353,6 +443,8 @@ function normalizeSurvey(survey) {
         possuiReleArco: null,
         fotosReleArco: [],
         ajustesReleArcoObtidos: null,
+        backupReleArcoPossivel: incident.backupReleArcoPossivel
+          ?? incident.ajustesReleArcoObtidos ?? null,
         releArcoTrip: null,
         possuiCompartimentoUnico: null,
         compartimentos: {
@@ -361,6 +453,7 @@ function normalizeSurvey(survey) {
         },
         ...incident
       };
+      data.energiaIncidente.ajustesReleArcoObtidos = data.energiaIncidente.backupReleArcoPossivel;
       data.energiaIncidente.fotosReleArco = asPhotoArray(data.energiaIncidente.fotosReleArco);
       data.energiaIncidente.compartimentos ||= {};
       ['entrada', 'menor'].forEach(name => {
@@ -380,6 +473,22 @@ function normalizeSurvey(survey) {
         }
         delete data.energiaIncidente.compartimentos[name].comprimento;
       });
+      if (!data.configuracaoColunas) {
+        if (data.energiaIncidente.possuiCompartimentoUnico === 'sim') {
+          data.configuracaoColunas = 'coluna_unica';
+        } else if (data.energiaIncidente.possuiCompartimentoUnico === 'nao'
+            || data.quantidadeColunas > 1) {
+          data.configuracaoColunas = 'diversas_colunas';
+        }
+      }
+      if (data.configuracaoColunas) {
+        data.energiaIncidente.possuiCompartimentoUnico =
+          data.configuracaoColunas === 'diversas_colunas' ? 'nao' : 'sim';
+      }
+      if (data.configuracaoColunas === 'coluna_unica') data.quantidadeColunas = 1;
+      else if (data.configuracaoColunas === 'diversas_colunas') {
+        data.quantidadeColunas = Math.max(2, data.quantidadeColunas);
+      }
       data.fotos = { ...clone(modeloLevantamento.subestacoes[0].paineis[0].dadosPainel.fotos), ...data.fotos };
       Object.keys(data.fotos).filter(key => key !== 'fotos_colunas')
         .forEach(key => { data.fotos[key] = asPhotoArray(data.fotos[key]); });
@@ -390,6 +499,28 @@ function normalizeSurvey(survey) {
       if (data.fotos.fotos_placas_motores_mt.length === 0 && data.fotos.foto_placa_motor_mt) {
         data.fotos.fotos_placas_motores_mt = asPhotoArray(data.fotos.foto_placa_motor_mt);
       }
+      const legacyMotorPhotos = data.fotos.fotos_placas_motores_mt;
+      const motorCount = Math.max(
+        data.curtoCircuito.quantidadeMotoresMT,
+        data.curtoCircuito.motores.length,
+        legacyMotorPhotos.length
+      );
+      data.curtoCircuito.motores = resizeRecords(data.curtoCircuito.motores, motorCount, () => ({
+        nome: '',
+        placaAcessivel: null,
+        fotos: []
+      })).map((motor, index) => ({
+        nome: '',
+        placaAcessivel: null,
+        fotos: [],
+        ...motor,
+        fotos: asPhotoArray(motor.fotos?.length ? motor.fotos : legacyMotorPhotos[index])
+      }));
+      data.curtoCircuito.quantidadeMotoresMT = data.curtoCircuito.motores.length;
+      if (legacyMotorPhotos.length && data.curtoCircuito.possuiMotoresMT === null) {
+        data.curtoCircuito.possuiMotoresMT = 'sim';
+      }
+      data.fotos.fotos_placas_motores_mt = data.curtoCircuito.motores.flatMap(motor => motor.fotos);
       ['foto_placa_trafo', 'foto_placa_resistor', 'foto_painel_resistor', 'fotos_outros_equipamentos', 'foto_placa_motor_mt']
         .forEach(key => { delete data.fotos[key]; });
     });
@@ -897,6 +1028,156 @@ async function exportarZipCompleto(survey) {
   };
 }
 
+const msalConfig = {
+  auth: {
+    clientId: '[INSIRA_SEU_CLIENT_ID_AQUI]',
+    authority: 'https://login.microsoftonline.com/common',
+    redirectUri: `${window.location.origin}${window.location.pathname}`
+  },
+  cache: {
+    cacheLocation: 'sessionStorage'
+  }
+};
+const GRAPH_SCOPES = ['Files.ReadWrite', 'User.Read'];
+const ONEDRIVE_CHUNK_SIZE = 10 * 320 * 1024;
+let msalApplication;
+
+function getMsalApplication() {
+  if (!window.msal?.PublicClientApplication) {
+    throw new Error('A biblioteca de autenticação Microsoft não foi carregada. Verifique a conexão e tente novamente.');
+  }
+  if (msalConfig.auth.clientId === '[INSIRA_SEU_CLIENT_ID_AQUI]') {
+    throw new Error('Configure o Client ID do aplicativo no Microsoft Entra antes de enviar ao OneDrive.');
+  }
+  msalApplication ||= new window.msal.PublicClientApplication(msalConfig);
+  return msalApplication;
+}
+
+async function loginPopup() {
+  const application = getMsalApplication();
+  const result = await application.loginPopup({ scopes: GRAPH_SCOPES });
+  application.setActiveAccount(result.account);
+  return result.account;
+}
+
+async function getGraphAccessToken() {
+  const application = getMsalApplication();
+  let account = application.getActiveAccount() || application.getAllAccounts()[0];
+  if (!account) account = await loginPopup();
+
+  try {
+    const result = await application.acquireTokenSilent({ account, scopes: GRAPH_SCOPES });
+    return result.accessToken;
+  } catch (error) {
+    if (!(error instanceof window.msal.InteractionRequiredAuthError)) throw error;
+    const result = await application.acquireTokenPopup({ account, scopes: GRAPH_SCOPES });
+    application.setActiveAccount(result.account);
+    return result.accessToken;
+  }
+}
+
+async function graphError(response, action) {
+  const body = await response.text();
+  let detail = body;
+  try {
+    const payload = JSON.parse(body);
+    detail = payload.error?.message || body;
+  } catch {
+    detail = body;
+  }
+  return new Error(`${action} (HTTP ${response.status})${detail ? `: ${detail}` : '.'}`);
+}
+
+async function ensureOneDriveFolder(accessToken, parentId, folderName, pathParts) {
+  const encodedPath = pathParts.map(encodeURIComponent).join('/');
+  const itemUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}`;
+  const existing = await fetch(itemUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (existing.ok) return existing.json();
+  if (existing.status !== 404) throw await graphError(existing, 'Não foi possível verificar a pasta do OneDrive');
+
+  const created = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${parentId}/children`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: folderName,
+      folder: {},
+      '@microsoft.graph.conflictBehavior': 'fail'
+    })
+  });
+  if (created.ok) return created.json();
+  if (created.status === 409) {
+    const raced = await fetch(itemUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (raced.ok) return raced.json();
+    throw await graphError(raced, 'Não foi possível acessar a pasta existente no OneDrive');
+  }
+  throw await graphError(created, 'Não foi possível criar a pasta no OneDrive');
+}
+
+// Uploads the generated ZIP in Graph-compatible, sequential byte ranges.
+async function createUploadSession(survey, archiveBlob, accessToken = null) {
+  accessToken ||= await getGraphAccessToken();
+  const projectFolder = safeArchiveName(survey.obra.numero || survey.obra.nomeServico);
+  const rootFolder = await ensureOneDriveFolder(accessToken, 'root', 'Levantamentos_PWA', ['Levantamentos_PWA']);
+  const destinationFolder = await ensureOneDriveFolder(
+    accessToken,
+    rootFolder.id,
+    projectFolder,
+    ['Levantamentos_PWA', projectFolder]
+  );
+  const fileName = `Levantamento-${projectFolder}.zip`;
+  const sessionResponse = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${destinationFolder.id}:/${encodeURIComponent(fileName)}:/createUploadSession`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        item: {
+          name: fileName,
+          '@microsoft.graph.conflictBehavior': 'replace'
+        }
+      })
+    }
+  );
+  if (!sessionResponse.ok) throw await graphError(sessionResponse, 'Não foi possível iniciar o upload para o OneDrive');
+  const { uploadUrl } = await sessionResponse.json();
+  if (!uploadUrl) throw new Error('O Microsoft Graph não retornou a URL da sessão de upload.');
+
+  for (let start = 0; start < archiveBlob.size; start += ONEDRIVE_CHUNK_SIZE) {
+    const end = Math.min(start + ONEDRIVE_CHUNK_SIZE, archiveBlob.size);
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': `bytes ${start}-${end - 1}/${archiveBlob.size}` },
+      body: archiveBlob.slice(start, end)
+    });
+    if (!response.ok) throw await graphError(response, 'Falha ao enviar um bloco do arquivo ao OneDrive');
+  }
+}
+
+async function shareSurveyZip(survey) {
+  if (!navigator.share || !navigator.canShare) {
+    throw new Error('O compartilhamento de arquivos não é compatível com este navegador.');
+  }
+  const { archive } = await gerarZipCompleto(survey);
+  const arquivoZip = new File([archive], 'Levantamento.zip', { type: 'application/zip' });
+  if (!navigator.canShare({ files: [arquivoZip] })) {
+    throw new Error('Este dispositivo não permite compartilhar arquivos ZIP pelo menu nativo.');
+  }
+  await navigator.share({
+    files: [arquivoZip],
+    title: 'Levantamento de Campo'
+  });
+}
+
 function renderHome() {
   const list = document.getElementById('saved-surveys');
   const empty = document.getElementById('home-empty');
@@ -922,6 +1203,8 @@ function renderHome() {
           <button class="btn btn-sm btn-primary" type="button" data-open-survey="${survey.id}">Continuar</button>
           <button class="btn btn-sm btn-secondary" type="button" data-export-survey="${survey.id}" data-export-format="excel">Exportar Apenas Planilha (.xlsx)</button>
           <button class="btn btn-sm btn-success" type="button" data-export-survey="${survey.id}" data-export-format="zip">Exportar Levantamento Completo (.zip)</button>
+          <button class="btn btn-sm btn-outline-primary" type="button" data-upload-survey="${survey.id}">☁️ Upload para OneDrive</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-share-survey="${survey.id}">📤 Compartilhar (WhatsApp / Drive)</button>
           <button class="btn btn-sm btn-outline-danger" type="button" data-delete-survey="${survey.id}">Excluir</button>
         </div>
       </div>`;
@@ -1010,6 +1293,8 @@ function paintPhotoPreview(preview, photos, onRemove) {
 function renderPhotoPreview(preview, photos) {
   paintPhotoPreview(preview, photos, async index => {
     photos.splice(index, 1);
+    const input = preview.closest('.photo-field')?.querySelector('.photo-input');
+    syncMotorPhotoExport(input);
     renderPhotoPreview(preview, photos);
     await persistCurrentSurvey();
   });
@@ -1060,7 +1345,7 @@ function addPhotoField(container, title, owner, key, photos, metadata = {}) {
   if (metadata.photoPath) input.id = `photo-${owner}-${metadata.seIndex}-${metadata.panelIndex}-${metadata.photoPath.replaceAll('.', '-')}`;
   if (owner === 'transformer' && key === 'transformador') {
     buttonText.dataset.transformerPhotoLabel = '';
-    buttonText.textContent = `＋ Tirar foto de ${title.replace(/^Transformador /, '')}`;
+    buttonText.textContent = `＋ ${metadata.buttonLabel || `Tirar foto de ${title.replace(/^Transformador /, '')}`}`;
   }
   label.htmlFor = input.id;
   label.append(buttonText, input);
@@ -1120,9 +1405,10 @@ function addPanelExtraText(container, question, fieldName, value, metadata) {
   label.className = 'form-label';
   const input = document.createElement('input');
   input.className = 'form-control';
-  input.type = 'text';
+  input.type = metadata.type || 'text';
   input.maxLength = 120;
-  input.required = true;
+  if (metadata.min !== undefined) input.min = String(metadata.min);
+  if (metadata.required !== false) input.required = true;
   input.value = value || '';
   input.dataset.panelExtraText = fieldName;
   input.dataset.extraSection = 'coordenacaoSeletividade';
@@ -1136,6 +1422,35 @@ function addPanelExtraText(container, question, fieldName, value, metadata) {
   wrapper.append(label, input);
   container.append(wrapper);
   return input;
+}
+
+function addPanelExtraSelect(container, question, fieldName, value, options, metadata) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'col-12';
+  const label = document.createElement('label');
+  label.className = 'form-label';
+  const select = document.createElement('select');
+  select.className = 'form-select';
+  select.required = metadata.required !== false;
+  select.dataset.panelExtraField = fieldName;
+  select.dataset.extraSection = 'coordenacaoSeletividade';
+  select.dataset.extraRecordArray = metadata.recordArray;
+  select.dataset.extraRecordIndex = String(metadata.recordIndex);
+  select.dataset.seIndex = String(metadata.seIndex);
+  select.dataset.panelIndex = String(metadata.panelIndex);
+  select.id = `se-${metadata.seIndex}-panel-${metadata.panelIndex}-${metadata.recordArray}-${metadata.recordIndex}-${fieldName}`;
+  label.htmlFor = select.id;
+  label.textContent = question;
+  options.forEach(option => {
+    const element = document.createElement('option');
+    element.value = option.value;
+    element.textContent = option.label;
+    select.append(element);
+  });
+  select.value = value || '';
+  wrapper.append(label, select);
+  container.append(wrapper);
+  return select;
 }
 
 function addPanelExtraCount(container, labelText, sectionName, countField, arrayField, count, metadata) {
@@ -1180,6 +1495,7 @@ function renderPanelColumnPhotos(card, data, seIndex, panelIndex) {
   const container = card.querySelector('.column-photo-fields');
   releasePhotoUrls(container);
   container.replaceChildren();
+  if (data.configuracaoColunas !== 'diversas_colunas') return;
   data.fotos.fotos_colunas.forEach((photos, index) => {
     addPanelDynamicPhoto(container, `Foto da Coluna ${index + 1}`,
       `fotos.fotos_colunas.${index}`, photos, {
@@ -1188,6 +1504,330 @@ function renderPanelColumnPhotos(card, data, seIndex, panelIndex) {
         buttonLabel: `Tirar foto da Coluna ${index + 1}`,
         photoFieldClass: 'col-12'
       });
+  });
+}
+
+function renderFinalObservationFields(container, state, context) {
+  container.replaceChildren();
+  [
+    ['informacoesColetadas', 'Foi possível coletar todas as informações solicitadas acima?'],
+    ['possuiObservacaoAdicional', 'Tem alguma observação adicional?']
+  ].forEach(([field, question]) => {
+    const fieldset = createFieldset(question);
+    ['sim', 'nao'].forEach((value, answerIndex) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'form-check form-check-inline';
+      const input = document.createElement('input');
+      input.className = 'form-check-input';
+      input.type = 'radio';
+      input.name = `${context.owner}-final-${context.seIndex}-${context.panelIndex ?? ''}-${field}`;
+      input.id = `${input.name}-${answerIndex}`;
+      input.value = value;
+      input.checked = state[field] === value;
+      input.required = true;
+      input.dataset.finalObservationField = field;
+      input.dataset.finalOwner = context.owner;
+      input.dataset.seIndex = String(context.seIndex);
+      if (context.panelIndex !== undefined) input.dataset.panelIndex = String(context.panelIndex);
+      const label = document.createElement('label');
+      label.className = 'form-check-label';
+      label.htmlFor = input.id;
+      label.textContent = value === 'sim' ? 'Sim' : 'Não';
+      wrapper.append(input, label);
+      fieldset.append(wrapper);
+    });
+    container.append(fieldset);
+
+    const isMissingInfo = field === 'informacoesColetadas';
+    const details = document.createElement('div');
+    details.className = isMissingInfo ? 'missing-info-field' : 'additional-observation-field';
+    details.hidden = isMissingInfo
+      ? state.informacoesColetadas !== 'nao'
+      : state.possuiObservacaoAdicional !== 'sim';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.htmlFor = `${context.owner}-final-${context.seIndex}-${context.panelIndex ?? ''}-${isMissingInfo ? 'reason' : 'observation'}`;
+    label.textContent = isMissingInfo
+      ? 'Informe qual informação não foi coletada e o porquê não foi possível.'
+      : 'Informe a observação adicional.';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'form-control';
+    textarea.id = label.htmlFor;
+    textarea.rows = '3';
+    textarea.maxLength = 2000;
+    textarea.required = true;
+    textarea.value = state[isMissingInfo ? 'justificativaInformacoesNaoColetadas' : 'observacaoAdicional'] || '';
+    textarea.dataset.finalObservationField = isMissingInfo
+      ? 'justificativaInformacoesNaoColetadas'
+      : 'observacaoAdicional';
+    textarea.dataset.finalOwner = context.owner;
+    textarea.dataset.seIndex = String(context.seIndex);
+    if (context.panelIndex !== undefined) textarea.dataset.panelIndex = String(context.panelIndex);
+    details.append(label, textarea);
+    if (field === 'possuiObservacaoAdicional' && context.owner === 'panel') {
+      const photoContainer = document.createElement('div');
+      photoContainer.className = 'final-observation-photo mt-2';
+      photoContainer.hidden = state.possuiObservacaoAdicional !== 'sim';
+      details.append(photoContainer);
+      addPanelDynamicPhoto(photoContainer, 'Foto opcional vinculada à observação do painel',
+        'fotos.foto_observacao_painel', context.panelData.fotos.foto_observacao_painel, {
+          seIndex: context.seIndex,
+          panelIndex: context.panelIndex,
+          buttonLabel: 'Adicionar foto opcional da observação',
+          photoFieldClass: 'col-12'
+        });
+    }
+    container.append(details);
+  });
+
+  if (context.owner === 'se') {
+    const photoContainer = document.createElement('div');
+    photoContainer.className = 'final-observation-photo mt-2';
+    photoContainer.hidden = state.possuiObservacaoAdicional !== 'sim';
+    container.append(photoContainer);
+    addPhotoField(photoContainer, 'Foto opcional vinculada à observação da SE',
+      'substation', 'foto_observacao_se', context.substation.foto_observacao_se, {
+        seIndex: context.seIndex,
+        buttonLabel: 'Adicionar foto opcional da observação',
+        photoFieldClass: 'col-12'
+      });
+  }
+}
+
+function renderCompartmentBlock(container, incident, name, seIndex, panelIndex, singleColumn = false) {
+  const compartment = incident.compartimentos[name];
+  const block = document.createElement('section');
+  block.className = 'compartment-block col-12 border rounded p-3 row g-3 mt-2';
+  const heading = document.createElement('div');
+  heading.className = 'col-12 d-flex align-items-center flex-wrap gap-2';
+  const title = document.createElement('h6');
+  title.className = 'form-section-title mb-0';
+  title.textContent = singleColumn
+    ? 'Dimensões globais do painel'
+    : name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento (gaveta)';
+  heading.append(title);
+  if (singleColumn) {
+    heading.append(createInlineTipButton('modalDicaUnico', 'Como medir o compartimento único?'));
+  } else {
+    heading.append(createInlineTipButton(
+      name === 'entrada' ? 'modalDicaEntrada' : 'modalDicaMenor',
+      `Como medir o compartimento ${name === 'entrada' ? 'de entrada' : 'menor'}?`
+    ));
+  }
+  block.append(heading);
+  ['altura', 'largura', 'profundidade'].forEach(dimension => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'col-md-4';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.htmlFor = `se-${seIndex}-panel-${panelIndex}-${name}-${dimension}`;
+    label.textContent = `${dimension.charAt(0).toUpperCase() + dimension.slice(1)} (mm)`;
+    const input = document.createElement('input');
+    input.className = 'form-control';
+    input.type = 'text';
+    input.value = compartment[dimension];
+    input.id = label.htmlFor;
+    input.dataset.compartment = name;
+    input.dataset.compartmentField = dimension;
+    input.dataset.seIndex = String(seIndex);
+    input.dataset.panelIndex = String(panelIndex);
+    wrapper.append(label, input);
+    block.append(wrapper);
+  });
+  addPanelDynamicPhoto(block, singleColumn ? 'Foto do painel'
+    : `Foto do ${name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento'}`,
+    `energiaIncidente.compartimentos.${name}.fotos`, compartment.fotos, { seIndex, panelIndex });
+  addPanelExtraRadio(block, 'O disjuntor é extraível?', 'energiaIncidente',
+    'disjuntorExtraivel', compartment.disjuntorExtraivel, [
+      { value: 'sim', label: 'Sim' },
+      { value: 'nao', label: 'Não' },
+      { value: 'nao_identificado', label: 'Não identificado' }
+    ], { seIndex, panelIndex, recordArray: 'compartimentos', recordIndex: name, required: true });
+  block.dataset.compartmentName = name;
+  container.append(block);
+}
+
+function renderPanelConfigurationFields(card, data, seIndex, panelIndex) {
+  const container = card.querySelector('.panel-configuration-fields');
+  releasePhotoUrls(container);
+  container.replaceChildren();
+  const fieldset = createFieldset('O painel tem apenas uma coluna ou possui várias?');
+  [
+    { value: 'coluna_unica', label: 'Coluna única' },
+    { value: 'diversas_colunas', label: 'Diversas Colunas' }
+  ].forEach((option, index) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'form-check form-check-inline';
+    const input = document.createElement('input');
+    input.className = 'form-check-input';
+    input.type = 'radio';
+    input.name = `se-${seIndex}-panel-${panelIndex}-configuracao-colunas`;
+    input.id = `${input.name}-${index}`;
+    input.value = option.value;
+    input.checked = data.configuracaoColunas === option.value;
+    input.required = true;
+    input.dataset.panelField = 'configuracaoColunas';
+    input.dataset.seIndex = String(seIndex);
+    input.dataset.panelIndex = String(panelIndex);
+    const label = document.createElement('label');
+    label.className = 'form-check-label';
+    label.htmlFor = input.id;
+    label.textContent = option.label;
+    wrapper.append(input, label);
+    fieldset.append(wrapper);
+  });
+  container.append(fieldset);
+
+  if (data.configuracaoColunas === 'diversas_colunas') {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'col-md-4 mt-2';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.htmlFor = `se-${seIndex}-panel-${panelIndex}-column-count`;
+    label.textContent = 'Quantidade de colunas';
+    const input = document.createElement('input');
+    input.className = 'form-control';
+    input.type = 'number';
+    input.min = '2';
+    input.max = String(MAX_PANEL_COLUMNS);
+    input.step = '1';
+    input.value = String(data.quantidadeColunas);
+    input.required = true;
+    input.id = label.htmlFor;
+    input.dataset.panelField = 'quantidadeColunas';
+    input.dataset.seIndex = String(seIndex);
+    input.dataset.panelIndex = String(panelIndex);
+    wrapper.append(label, input);
+    container.append(wrapper);
+  }
+
+}
+
+function renderCableInformation(container, short, seIndex, panelIndex) {
+  const cableRecords = short.cabos.length
+    ? short.cabos
+    : [{ finalidade: '', distancia: '', bitola: '', quantidadePorFase: '' }];
+  const list = document.createElement('div');
+  list.className = 'cable-list';
+  cableRecords.forEach((cable, index) => {
+    const block = document.createElement('div');
+    block.className = 'row g-3 border rounded p-3 mx-0 mt-2 cable-item';
+    [
+      ['finalidade', 'Entrada e/ou Saída', 'Descreva se é entrada, saída ou ambos'],
+      ['distancia', 'Distância', 'Ex.: 45 m'],
+      ['bitola', 'Bitola', 'Ex.: 3 x 240 mm²'],
+      ['quantidadePorFase', 'Quantidade por fase', 'Ex.: 2']
+    ].forEach(([field, labelText, placeholder]) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'col-md-3';
+      const label = document.createElement('label');
+      label.className = 'form-label';
+      label.htmlFor = `se-${seIndex}-panel-${panelIndex}-cable-${index}-${field}`;
+      label.textContent = labelText;
+      const input = document.createElement('input');
+      input.className = 'form-control';
+      input.type = 'text';
+      input.id = label.htmlFor;
+      input.value = cable[field] || '';
+      input.placeholder = placeholder;
+      input.dataset.cableField = field;
+      input.dataset.cableIndex = String(index);
+      input.dataset.seIndex = String(seIndex);
+      input.dataset.panelIndex = String(panelIndex);
+      wrapper.append(label, input);
+      block.append(wrapper);
+    });
+    list.append(block);
+  });
+  container.append(list);
+  const addButton = document.createElement('button');
+  addButton.className = 'btn btn-sm btn-outline-primary mt-2 add-cable-button';
+  addButton.type = 'button';
+  addButton.dataset.seIndex = String(seIndex);
+  addButton.dataset.panelIndex = String(panelIndex);
+  addButton.textContent = '＋ Deseja acrescentar informações de outros cabos?';
+  container.append(addButton);
+}
+
+function renderMotorFields(container, short, seIndex, panelIndex) {
+  container.replaceChildren();
+  const countWrapper = document.createElement('div');
+  countWrapper.className = 'col-md-4';
+  const countLabel = document.createElement('label');
+  countLabel.className = 'form-label';
+  countLabel.htmlFor = `se-${seIndex}-panel-${panelIndex}-motor-count`;
+  countLabel.textContent = 'Quantidade de motores';
+  const countInput = document.createElement('input');
+  countInput.className = 'form-control';
+  countInput.type = 'number';
+  countInput.min = '1';
+  countInput.max = String(MAX_PROTECTION_DEVICES_PER_PANEL);
+  countInput.step = '1';
+  countInput.value = String(short.quantidadeMotoresMT);
+  countInput.id = countLabel.htmlFor;
+  countInput.dataset.motorCount = 'true';
+  countInput.dataset.seIndex = String(seIndex);
+  countInput.dataset.panelIndex = String(panelIndex);
+  countWrapper.append(countLabel, countInput);
+  container.append(countWrapper);
+
+  short.motores.forEach((motor, index) => {
+    const block = document.createElement('div');
+    block.className = 'row g-3 border rounded p-3 mx-0 mt-2 motor-item';
+    const nameWrapper = document.createElement('div');
+    nameWrapper.className = 'col-12';
+    const nameLabel = document.createElement('label');
+    nameLabel.className = 'form-label';
+    nameLabel.htmlFor = `se-${seIndex}-panel-${panelIndex}-motor-${index}-name`;
+    nameLabel.textContent = `Nome/TAG do motor ${index + 1}`;
+    const nameInput = document.createElement('input');
+    nameInput.className = 'form-control';
+    nameInput.type = 'text';
+    nameInput.maxLength = 120;
+    nameInput.value = motor.nome;
+    nameInput.id = nameLabel.htmlFor;
+    nameInput.dataset.motorField = 'nome';
+    nameInput.dataset.motorIndex = String(index);
+    nameInput.dataset.seIndex = String(seIndex);
+    nameInput.dataset.panelIndex = String(panelIndex);
+    nameWrapper.append(nameLabel, nameInput);
+    block.append(nameWrapper);
+
+    const accessField = createFieldset(`A placa do motor${motor.nome ? ` ${motor.nome}` : ''} é acessível?`);
+    ['sim', 'nao'].forEach((value, answerIndex) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'form-check form-check-inline';
+      const input = document.createElement('input');
+      input.className = 'form-check-input';
+      input.type = 'radio';
+      input.name = `se-${seIndex}-panel-${panelIndex}-motor-${index}-plate-access`;
+      input.id = `${input.name}-${answerIndex}`;
+      input.value = value;
+      input.checked = motor.placaAcessivel === value;
+      input.dataset.motorField = 'placaAcessivel';
+      input.dataset.motorIndex = String(index);
+      input.dataset.seIndex = String(seIndex);
+      input.dataset.panelIndex = String(panelIndex);
+      const label = document.createElement('label');
+      label.className = 'form-check-label';
+      label.htmlFor = input.id;
+      label.textContent = value === 'sim' ? 'Sim' : 'Não';
+      wrapper.append(input, label);
+      accessField.append(wrapper);
+    });
+    block.append(accessField);
+
+    const photoField = document.createElement('div');
+    photoField.className = 'motor-plate-photo-field col-12';
+    photoField.hidden = motor.placaAcessivel !== 'sim';
+    addPanelDynamicPhoto(photoField, `Foto da placa do motor ${motor.nome || index + 1}`,
+      `curtoCircuito.motores.${index}.fotos`, motor.fotos, {
+        seIndex,
+        panelIndex,
+        buttonLabel: 'Tirar foto da placa do motor'
+      });
+    block.append(photoField);
+    container.append(block);
   });
 }
 
@@ -1207,10 +1847,26 @@ function renderCoordinationFields(card, data, seIndex, panelIndex) {
     heading.className = 'form-section-title col-12 mb-0';
     heading.textContent = `Dados do Relé ${index + 1}`;
     item.append(heading);
-    addPanelExtraText(item, 'Em qual cubículo o relé está instalado?', 'cubiculo',
-      relay.cubiculo, { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index });
-    addPanelExtraText(item, 'Ele é de entrada ou qual saída está alimentando?', 'alimentacao',
-      relay.alimentacao, { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index });
+    addPanelExtraText(item, 'Qual o número do cubículo o relé está instalado?', 'cubiculo',
+      relay.cubiculo, {
+        seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index,
+        type: 'number', min: 0
+      });
+    const relayFeed = addPanelExtraSelect(item, 'O relé está instalado na Entrada ou em um Alimentador?',
+      'alimentacao', relay.alimentacao, [
+        { value: '', label: 'Selecione...' },
+        { value: 'Entrada', label: 'Entrada' },
+        { value: 'Alimentador', label: 'Alimentador' }
+      ], { seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index });
+    const relayCircuit = addPanelExtraText(item, 'Qual equipamento/circuito este relé faz a proteção?',
+      'equipamentoProtegido', relay.equipamentoProtegido, {
+        seIndex, panelIndex, recordArray: 'relesProtecao', recordIndex: index,
+        required: relay.alimentacao === 'Alimentador'
+      });
+    relayCircuit.parentElement.classList.add('protected-device-field');
+    relayCircuit.parentElement.dataset.protectedArray = 'relesProtecao';
+    relayCircuit.parentElement.dataset.protectedIndex = String(index);
+    relayCircuit.parentElement.dataset.feedType = relayFeed.value;
     addPanelExtraRadio(item, 'Foi possível obter o backup do relé?', 'coordenacaoSeletividade',
       'backupObtido', relay.backupObtido, [
         { value: 'sim', label: 'Sim' },
@@ -1245,10 +1901,27 @@ function renderCoordinationFields(card, data, seIndex, panelIndex) {
     addPanelDynamicPhoto(item, `Disjuntor LSIG ${index + 1} — ajustes`,
       `coordenacaoSeletividade.disjuntoresLSIG.${index}.fotosAjustes`, breaker.fotosAjustes,
       { seIndex, panelIndex });
-    addPanelExtraText(item, 'Em qual cubículo/coluna/gaveta o disjuntor está instalado?', 'cubiculo',
-      breaker.cubiculo, { seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index });
-    addPanelExtraText(item, 'O disjuntor é de entrada ou qual saída está alimentando?', 'alimentacao',
-      breaker.alimentacao, { seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index });
+    addPanelExtraText(item, 'Qual o número do cubículo o disjuntor LSIG está instalado?', 'cubiculo',
+      breaker.cubiculo, {
+        seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index,
+        type: 'number', min: 0
+      });
+    const breakerFeed = addPanelExtraSelect(item,
+      'O disjuntor LSIG está instalado na Entrada ou em um Alimentador?',
+      'alimentacao', breaker.alimentacao, [
+        { value: '', label: 'Selecione...' },
+        { value: 'Entrada', label: 'Entrada' },
+        { value: 'Alimentador', label: 'Alimentador' }
+      ], { seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index });
+    const breakerCircuit = addPanelExtraText(item, 'Qual equipamento/circuito este disjuntor LSIG faz a proteção?',
+      'equipamentoProtegido', breaker.equipamentoProtegido, {
+        seIndex, panelIndex, recordArray: 'disjuntoresLSIG', recordIndex: index,
+        required: breaker.alimentacao === 'Alimentador'
+      });
+    breakerCircuit.parentElement.classList.add('protected-device-field');
+    breakerCircuit.parentElement.dataset.protectedArray = 'disjuntoresLSIG';
+    breakerCircuit.parentElement.dataset.protectedIndex = String(index);
+    breakerCircuit.parentElement.dataset.feedType = breakerFeed.value;
     base.append(item);
   });
 
@@ -1320,85 +1993,73 @@ function renderIncidentEnergyFields(card, data, seIndex, panelIndex) {
   const arc = document.createElement('div');
   arc.className = 'arc-relay-fields row g-3 mt-1';
   arc.hidden = incident.possuiReleArco !== 'sim';
-  addPanelDynamicPhoto(arc, 'Foto do relé de arco', 'energiaIncidente.fotosReleArco',
-    incident.fotosReleArco, { seIndex, panelIndex });
-  addPanelExtraRadio(arc, 'Foi possível obter ajustes do relé de arco?', 'energiaIncidente',
-    'ajustesReleArcoObtidos', incident.ajustesReleArcoObtidos, [
+  addPanelExtraRadio(arc, 'É possível realizar um backup do arquivo do relé de arco?', 'energiaIncidente',
+    'backupReleArcoPossivel', incident.backupReleArcoPossivel, [
       { value: 'sim', label: 'Sim' },
       { value: 'nao', label: 'Não' }
-    ], { seIndex, panelIndex });
-  addPanelExtraRadio(arc, 'O relé de arco enviou TRIP local ou a montante?', 'energiaIncidente',
+    ], { seIndex, panelIndex, required: true });
+  const settingsPhoto = document.createElement('div');
+  settingsPhoto.className = 'arc-settings-photo col-12';
+  settingsPhoto.hidden = incident.backupReleArcoPossivel !== 'nao';
+  addPanelDynamicPhoto(settingsPhoto, 'Foto dos ajustes implantados do relé de arco',
+    'energiaIncidente.fotosReleArco', incident.fotosReleArco, { seIndex, panelIndex });
+  arc.append(settingsPhoto);
+  addPanelExtraRadio(arc, 'O relé de arco envia trip a montante (transfer trip)?', 'energiaIncidente',
     'releArcoTrip', incident.releArcoTrip, [
       { value: 'sim', label: 'Sim' },
       { value: 'nao', label: 'Não' },
       { value: 'nao_identificado', label: 'Não foi possível identificar' }
     ], { seIndex, panelIndex, required: true });
   container.append(arc);
-
-  addPanelExtraRadio(container, 'O painel possui um único compartimento?', 'energiaIncidente',
-    'possuiCompartimentoUnico', incident.possuiCompartimentoUnico, [
-      { value: 'sim', label: 'Sim' },
-      { value: 'nao', label: 'Não' }
-    ], { seIndex, panelIndex });
-  const compartments = document.createElement('div');
-  compartments.className = 'compartment-fields row g-3 mt-1';
-  compartments.hidden = !incident.possuiCompartimentoUnico;
-  const names = incident.possuiCompartimentoUnico === 'sim' ? ['entrada']
-    : incident.possuiCompartimentoUnico === 'nao' ? ['entrada', 'menor'] : [];
-  names.forEach(name => {
-    const compartment = incident.compartimentos[name];
-    const block = document.createElement('section');
-    block.className = 'compartment-block col-12 border rounded p-3 row g-3';
-    const heading = document.createElement('div');
-    heading.className = 'col-12 d-flex align-items-center flex-wrap gap-2';
-    const title = document.createElement('h6');
-    title.className = 'form-section-title mb-0';
-    title.textContent = name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento do Painel';
-    const helpButton = document.createElement('button');
-    helpButton.className = 'btn btn-sm btn-outline-info ms-2 py-0 px-1';
-    helpButton.type = 'button';
-    helpButton.dataset.bsToggle = 'modal';
-    helpButton.dataset.bsTarget = name === 'entrada' ? '#modalDicaEntrada' : '#modalDicaMenor';
-    helpButton.setAttribute('aria-label', `Como medir o compartimento ${name === 'entrada' ? 'de entrada' : 'menor'}?`);
-    helpButton.textContent = 'ℹ️';
-    heading.append(title, helpButton);
-    block.append(heading);
-    ['altura', 'largura', 'profundidade'].forEach(dimension => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'col-md-4';
-      const label = document.createElement('label');
-      label.className = 'form-label';
-      label.htmlFor = `se-${seIndex}-panel-${panelIndex}-${name}-${dimension}`;
-      label.textContent = `${dimension.charAt(0).toUpperCase() + dimension.slice(1)} (mm)`;
-      const input = document.createElement('input');
-      input.className = 'form-control';
-      input.type = 'text';
-      input.value = compartment[dimension];
-      input.id = label.htmlFor;
-      input.dataset.compartment = name;
-      input.dataset.compartmentField = dimension;
-      input.dataset.seIndex = String(seIndex);
-      input.dataset.panelIndex = String(panelIndex);
-      wrapper.append(label, input);
-      block.append(wrapper);
-    });
-    addPanelDynamicPhoto(block, `Foto do ${name === 'entrada' ? 'Compartimento de Entrada' : 'Menor Compartimento'}`,
-      `energiaIncidente.compartimentos.${name}.fotos`, compartment.fotos, { seIndex, panelIndex });
-    addPanelExtraRadio(block, 'O disjuntor é extraível?', 'energiaIncidente',
-      'disjuntorExtraivel', compartment.disjuntorExtraivel, [
-        { value: 'sim', label: 'Sim' },
-        { value: 'nao', label: 'Não' },
-        { value: 'nao_identificado', label: 'Não foi possível identificar' }
-      ], { seIndex, panelIndex, recordArray: 'compartimentos', recordIndex: name, required: true });
-    block.dataset.compartmentName = name;
-    compartments.append(block);
-  });
-  container.append(compartments);
+  const compartmentNames = data.configuracaoColunas === 'coluna_unica' ? ['entrada']
+    : data.configuracaoColunas === 'diversas_colunas' ? ['entrada', 'menor'] : [];
+  compartmentNames.forEach(name => renderCompartmentBlock(container, incident, name,
+    seIndex, panelIndex, data.configuracaoColunas === 'coluna_unica'));
 }
 
 function renderPanelModules(card, data, seIndex, panelIndex) {
   renderCoordinationFields(card, data, seIndex, panelIndex);
   renderIncidentEnergyFields(card, data, seIndex, panelIndex);
+  const short = data.curtoCircuito;
+  const otherBreakers = card.querySelector('.other-breaker-fields');
+  otherBreakers.replaceChildren();
+  addPanelExtraRadio(otherBreakers,
+    'Deseja adicionar alguma informação adicional sobre outros disjuntores?',
+    'curtoCircuito', 'possuiInformacaoAdicionalDisjuntores',
+    short.possuiInformacaoAdicionalDisjuntores, [
+      { value: 'sim', label: 'Sim' },
+      { value: 'nao', label: 'Não' }
+    ], { seIndex, panelIndex });
+  const otherBreakerDetails = document.createElement('div');
+  otherBreakerDetails.className = 'other-breaker-details row g-3 mt-1';
+  otherBreakerDetails.hidden = short.possuiInformacaoAdicionalDisjuntores !== 'sim';
+  const textWrap = document.createElement('div');
+  textWrap.className = 'col-12';
+  const textLabel = document.createElement('label');
+  textLabel.className = 'form-label';
+  textLabel.htmlFor = `se-${seIndex}-panel-${panelIndex}-other-breaker-info`;
+  textLabel.textContent = 'Informações adicionais sobre outros disjuntores';
+  const textInput = document.createElement('textarea');
+  textInput.className = 'form-control';
+  textInput.rows = '3';
+  textInput.maxLength = 2000;
+  textInput.id = textLabel.htmlFor;
+  textInput.value = short.informacaoAdicionalDisjuntores;
+  textInput.dataset.shortField = 'informacaoAdicionalDisjuntores';
+  textInput.dataset.seIndex = String(seIndex);
+  textInput.dataset.panelIndex = String(panelIndex);
+  textWrap.append(textLabel, textInput);
+  otherBreakerDetails.append(textWrap);
+  addPanelDynamicPhoto(otherBreakerDetails, 'Foto opcional sobre outros disjuntores',
+    'curtoCircuito.fotosInformacaoAdicionalDisjuntores',
+    short.fotosInformacaoAdicionalDisjuntores, { seIndex, panelIndex });
+  otherBreakers.append(otherBreakerDetails);
+
+  const cableFields = card.querySelector('.cable-information-fields');
+  cableFields.replaceChildren();
+  cableFields.append(createFieldset('Informações dos cabos'));
+  renderCableInformation(cableFields, short, seIndex, panelIndex);
+  renderMotorFields(card.querySelector('.motor-fields'), short, seIndex, panelIndex);
 }
 
 function renderSubstations() {
@@ -1488,66 +2149,113 @@ function renderSubstations() {
       input.dataset.transformerField = 'nome';
       nameWrap.append(label, input);
       section.append(nameWrap);
-      const resistorAnswer = document.createElement('fieldset');
-      resistorAnswer.className = 'col-12';
-      const resistorLegend = document.createElement('legend');
-      resistorLegend.className = 'form-label';
-      resistorLegend.textContent = `O aterramento do TRAFO ${transformerIndex + 1} é por resistor?`;
-      resistorAnswer.append(resistorLegend);
-      ['sim', 'nao'].forEach((value, answerIndex) => {
+      const addTransformerQuestion = (question, fieldName, value) => {
+        const fieldset = createFieldset(question);
+        ['sim', 'nao'].forEach((answerValue, answerIndex) => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'form-check form-check-inline';
+          const answer = document.createElement('input');
+          answer.className = 'form-check-input';
+          answer.type = 'radio';
+          answer.name = `se-${seIndex}-transformer-${transformerIndex}-${fieldName}`;
+          answer.id = `${answer.name}-${answerIndex}`;
+          answer.value = answerValue;
+          answer.checked = value === answerValue;
+          answer.dataset.seIndex = String(seIndex);
+          answer.dataset.transformerIndex = String(transformerIndex);
+          answer.dataset.transformerField = fieldName;
+          const answerLabel = document.createElement('label');
+          answerLabel.className = 'form-check-label';
+          answerLabel.htmlFor = answer.id;
+          answerLabel.textContent = answerValue === 'sim' ? 'Sim' : 'Não';
+          wrapper.append(answer, answerLabel);
+          fieldset.append(wrapper);
+        });
+        section.append(fieldset);
+      };
+      addTransformerQuestion('A placa do transformador é acessível?', 'placaAcessivel',
+        transformer.placaAcessivel);
+      const transformerPhotoGrid = document.createElement('div');
+      transformerPhotoGrid.className = 'row g-3 transformer-photo';
+      addPhotoField(transformerPhotoGrid, `Foto do Trafo ${transformer.nome || transformerIndex + 1}`,
+        'transformer', 'transformador', transformer.fotos.transformador, {
+          seIndex, transformerIndex, buttonLabel: 'Foto do Trafo'
+        });
+      section.append(transformerPhotoGrid);
+      const transformerPlatePhotoGrid = document.createElement('div');
+      transformerPlatePhotoGrid.className = 'row g-3 transformer-plate-photos';
+      transformerPlatePhotoGrid.hidden = transformer.placaAcessivel !== 'sim';
+      addPhotoField(transformerPlatePhotoGrid, `Foto da Placa ${transformer.nome || transformerIndex + 1}`,
+        'transformer', 'placa', transformer.fotos.placa, {
+          seIndex, transformerIndex, buttonLabel: 'Foto da Placa'
+        });
+      section.append(transformerPlatePhotoGrid);
+      addTransformerQuestion('O transformador possui aterramento em algum de seus enrolamentos?',
+        'possuiAterramentoEnrolamento', transformer.possuiAterramentoEnrolamento);
+      const groundingDetails = document.createElement('div');
+      groundingDetails.className = 'grounding-details';
+      groundingDetails.hidden = transformer.possuiAterramentoEnrolamento !== 'sim';
+      const resistorAnswer = createFieldset('O aterramento é por resistor?');
+      ['sim', 'nao'].forEach((answerValue, answerIndex) => {
         const wrapper = document.createElement('div');
         wrapper.className = 'form-check form-check-inline';
         const answer = document.createElement('input');
-        answer.className = 'form-check-input transformer-resistor-answer';
+        answer.className = 'form-check-input';
         answer.type = 'radio';
-        answer.name = `se-${seIndex}-transformer-${transformerIndex}-resistor`;
+        answer.name = `se-${seIndex}-transformer-${transformerIndex}-aterramento-resistor`;
         answer.id = `${answer.name}-${answerIndex}`;
-        answer.value = value;
-        answer.checked = transformer.aterramentoPorResistor === value;
+        answer.value = answerValue;
+        answer.checked = transformer.aterramentoPorResistor === answerValue;
         answer.dataset.seIndex = String(seIndex);
         answer.dataset.transformerIndex = String(transformerIndex);
         answer.dataset.transformerField = 'aterramentoPorResistor';
         const answerLabel = document.createElement('label');
         answerLabel.className = 'form-check-label';
         answerLabel.htmlFor = answer.id;
-        answerLabel.textContent = value === 'sim' ? 'Sim' : 'Não';
+        answerLabel.textContent = answerValue === 'sim' ? 'Sim' : 'Não';
         wrapper.append(answer, answerLabel);
         resistorAnswer.append(wrapper);
       });
+      groundingDetails.append(resistorAnswer);
       const resistorDetails = document.createElement('div');
-      resistorDetails.className = 'row g-3 transformer-resistor-details';
+      resistorDetails.className = 'resistor-details';
       resistorDetails.hidden = transformer.aterramentoPorResistor !== 'sim';
-      const currentField = document.createElement('div');
-      currentField.className = 'col-md-6';
-      const currentLabel = document.createElement('label');
-      currentLabel.className = 'form-label';
-      currentLabel.htmlFor = `se-${seIndex}-transformer-${transformerIndex}-resistor-current`;
-      currentLabel.textContent = 'Valor da corrente do resistor';
-      const currentInput = document.createElement('input');
-      currentInput.className = 'form-control';
-      currentInput.id = currentLabel.htmlFor;
-      currentInput.type = 'text';
-      currentInput.inputMode = 'decimal';
-      currentInput.value = transformer.correnteResistor;
-      currentInput.placeholder = 'Ex.: 10 A';
-      currentInput.dataset.seIndex = String(seIndex);
-      currentInput.dataset.transformerIndex = String(transformerIndex);
-      currentInput.dataset.transformerField = 'correnteResistor';
-      currentField.append(currentLabel, currentInput);
-      resistorDetails.append(currentField);
-      section.append(resistorAnswer, resistorDetails);
-      addPhotoField(section, `Transformador ${transformer.nome || transformerIndex + 1}`, 'transformer', 'transformador',
-        transformer.fotos.transformador, { seIndex, transformerIndex });
-      addPhotoField(section, `Placa do transformador ${transformer.nome || transformerIndex + 1}`, 'transformer', 'placa',
-        transformer.fotos.placa, { seIndex, transformerIndex });
+      const resistorPlateAnswer = createFieldset('A placa do resistor é acessível?');
+      ['sim', 'nao'].forEach((answerValue, answerIndex) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'form-check form-check-inline';
+        const answer = document.createElement('input');
+        answer.className = 'form-check-input';
+        answer.type = 'radio';
+        answer.name = `se-${seIndex}-transformer-${transformerIndex}-placa-resistor`;
+        answer.id = `${answer.name}-${answerIndex}`;
+        answer.value = answerValue;
+        answer.checked = transformer.placaResistorAcessivel === answerValue;
+        answer.dataset.seIndex = String(seIndex);
+        answer.dataset.transformerIndex = String(transformerIndex);
+        answer.dataset.transformerField = 'placaResistorAcessivel';
+        const answerLabel = document.createElement('label');
+        answerLabel.className = 'form-check-label';
+        answerLabel.htmlFor = answer.id;
+        answerLabel.textContent = answerValue === 'sim' ? 'Sim' : 'Não';
+        wrapper.append(answer, answerLabel);
+        resistorPlateAnswer.append(wrapper);
+      });
+      resistorDetails.append(resistorPlateAnswer);
       const resistorPhotoGrid = document.createElement('div');
-      resistorPhotoGrid.className = 'resistor-photo-grid col-12 transformer-resistor-details';
-      resistorPhotoGrid.hidden = transformer.aterramentoPorResistor !== 'sim';
-      addPhotoField(resistorPhotoGrid, `Placa do resistor do TRAFO ${transformer.nome || transformerIndex + 1}`, 'transformer',
-        'resistorPlaca', transformer.fotos.resistorPlaca, { seIndex, transformerIndex });
-      addPhotoField(resistorPhotoGrid, `Painel do resistor do TRAFO ${transformer.nome || transformerIndex + 1}`, 'transformer',
-        'resistorPainel', transformer.fotos.resistorPainel, { seIndex, transformerIndex });
-      section.append(resistorPhotoGrid);
+      resistorPhotoGrid.className = 'row g-3 resistor-plate-photos';
+      resistorPhotoGrid.hidden = transformer.placaResistorAcessivel !== 'sim';
+      addPhotoField(resistorPhotoGrid, `Placa do resistor do TRAFO ${transformer.nome || transformerIndex + 1}`,
+        'transformer', 'resistorPlaca', transformer.fotos.resistorPlaca, {
+          seIndex, transformerIndex, buttonLabel: 'Placa do resistor'
+        });
+      addPhotoField(resistorPhotoGrid, `Painel do resistor do TRAFO ${transformer.nome || transformerIndex + 1}`,
+        'transformer', 'resistorPainel', transformer.fotos.resistorPainel, {
+          seIndex, transformerIndex, buttonLabel: 'Painel do resistor'
+        });
+      resistorDetails.append(resistorPhotoGrid);
+      groundingDetails.append(resistorDetails);
+      section.append(groundingDetails);
       transformerList.append(section);
     });
 
@@ -1593,23 +2301,11 @@ function renderSubstations() {
       equipmentList.append(row);
     });
 
-    const observations = card.querySelector('.se-observations-input');
-    observations.id = `se-${seIndex}-observations`;
-    observations.value = substation.observacoes;
-    observations.dataset.seIndex = String(seIndex);
-    card.querySelector('.se-observations-label').htmlFor = observations.id;
-    addPhotoField(card.querySelector('.se-observation-photo'), 'Foto opcional da observação da SE',
-      'substation', 'foto_observacao_se', substation.foto_observacao_se, {
-        seIndex,
-        buttonLabel: 'Adicionar foto opcional da SE',
-        photoFieldClass: 'col-12'
-      });
-
-    const count = card.querySelector('.se-panel-count');
-    count.id = `se-${seIndex}-panel-count`;
-    count.value = substation.paineis.length;
-    count.dataset.seIndex = String(seIndex);
-    card.querySelector('.se-count-label').htmlFor = count.id;
+    renderFinalObservationFields(card.querySelector('.se-observation-fields'), substation, {
+      owner: 'se',
+      seIndex,
+      substation
+    });
     card.querySelector('.remove-se-button').dataset.seIndex = String(seIndex);
     card.querySelector('.add-panel-button').dataset.seIndex = String(seIndex);
     card.querySelector('.save-substation-button').dataset.seIndex = String(seIndex);
@@ -1626,8 +2322,9 @@ function setupPanelModuleCollapse(card, selector, sectionKey, seIndex, panelInde
   section.classList.add('module-card-section');
   const title = section.querySelector('h5');
   const header = document.createElement('div');
-  header.className = 'module-section-heading';
+  header.className = 'module-section-heading card-header d-flex justify-content-between align-items-center mb-3';
   header.append(title);
+  section.classList.add('card');
   const sectionId = `se-${seIndex}-panel-${panelIndex}-module-${sectionKey}`;
   const collapse = document.createElement('div');
   collapse.className = 'collapse show module-collapse';
@@ -1646,7 +2343,10 @@ function setupPanelModuleCollapse(card, selector, sectionKey, seIndex, panelInde
   toggle.setAttribute('aria-expanded', String(collapse.classList.contains('show')));
   toggle.textContent = collapse.classList.contains('show') ? 'Minimizar' : 'Maximizar';
   header.append(toggle);
-  section.replaceChildren(header, collapse);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  body.append(collapse);
+  section.replaceChildren(header, body);
 }
 
 function renderPanel(panel, seIndex, panelIndex, expandedSections) {
@@ -1684,9 +2384,8 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
     ['.panel-name-input', '.panel-name-label', data.nome, 'name'],
     ['.panel-type-select', '.panel-type-label', data.tipo, 'type'],
     ['.panel-voltage-select', '.panel-voltage-label', data.nivelTensao, 'voltage'],
-    ['.other-voltage-input', '.other-voltage-label', data.outroNivelTensao, 'other-voltage'],
-    ['.panel-column-count', '.panel-column-count-label', data.quantidadeColunas, 'columns'],
-    ['.panel-observations-input', '.panel-observations-label', data.observacoes, 'observations']
+    ['.other-panel-type-input', '.other-panel-type-label', data.outroTipo, 'other-type'],
+    ['.other-voltage-input', '.other-voltage-label', data.outroNivelTensao, 'other-voltage']
   ];
   fields.forEach(([selector, labelSelector, value, suffix]) => {
     const input = card.querySelector(selector);
@@ -1702,14 +2401,6 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
   card.querySelector('[data-panel-photo-label="completo"]').textContent =
     `＋ Tirar foto completa de ${data.nome || 'painel'}`;
 
-  card.querySelectorAll('[data-panel-field="possuiUnifilar"]').forEach((input, index) => {
-    input.name = radioName('unifilar', seIndex, panelIndex, 'possui');
-    input.id = `${input.name}-${index}`;
-    input.checked = input.value === data.possuiUnifilar;
-    input.dataset.seIndex = String(seIndex);
-    input.dataset.panelIndex = String(panelIndex);
-    input.nextElementSibling.htmlFor = input.id;
-  });
   card.querySelectorAll('[data-short-field]').forEach((input, index) => {
     const field = input.dataset.shortField;
     input.dataset.seIndex = String(seIndex);
@@ -1735,32 +2426,41 @@ function renderPanel(panel, seIndex, panelIndex, expandedSections) {
     const preview = card.querySelector(`[data-preview-key="${input.dataset.photoKey}"]`);
     renderPhotoPreview(preview, data.fotos[input.dataset.photoKey]);
   });
+  renderFinalObservationFields(card.querySelector('.panel-observation-fields'),
+    data.observacoesFinais, { owner: 'panel', seIndex, panelIndex, panelData: data });
+  renderPanelConfigurationFields(card, data, seIndex, panelIndex);
   renderPanelColumnPhotos(card, data, seIndex, panelIndex);
   card.querySelector('.other-voltage-field').hidden = data.nivelTensao !== 'Outro';
+  card.querySelector('.other-panel-type-field').hidden = data.tipo !== 'Outros';
   renderPanelModules(card, data, seIndex, panelIndex);
   updatePanelConditions(card, data);
   return fragment;
 }
 
 function updatePanelConditions(card, data) {
-  card.querySelector('[data-condition="unifilar"]').hidden = data.possuiUnifilar !== 'sim';
-  card.querySelector('.short-circuit-section').hidden = !hasShortCircuitScope();
+  card.querySelector('[data-module-key="short-circuit"]').hidden = !hasShortCircuitScope();
   const mediumVoltage = ['4.16 kV', '6.9 kV', '13.8 kV', '34.5 kV'].includes(data.nivelTensao);
+  const motorsEnabled = mediumVoltage && data.curtoCircuito.possuiMotoresMT === 'sim';
   card.querySelector('.medium-voltage-motors').hidden = !mediumVoltage;
-  card.querySelector('.motor-photo-field').hidden = !mediumVoltage || data.curtoCircuito.possuiMotoresMT !== 'sim';
-  card.querySelector('.cable-fields').hidden = data.curtoCircuito.informacoesCabosDisponiveis !== 'sim';
+  const motorFields = card.querySelector('.motor-fields');
+  motorFields.hidden = !motorsEnabled;
+  motorFields.querySelector('[data-motor-count]').required = motorsEnabled;
+  motorFields.querySelectorAll('[data-motor-field="placaAcessivel"]').forEach(input => {
+    input.required = motorsEnabled;
+  });
+  motorFields.querySelectorAll('.motor-plate-photo-field').forEach((field, index) => {
+    field.hidden = !motorsEnabled || data.curtoCircuito.motores[index]?.placaAcessivel !== 'sim';
+  });
   card.querySelector('.support-panel-photo-field').hidden =
     data.curtoCircuito.suportabilidadePainelDisponivel !== 'sim';
   card.querySelector('.support-panel-photo-field input[type="file"]').required =
     data.curtoCircuito.suportabilidadePainelDisponivel === 'sim';
-  card.querySelector('.support-panel-justification').hidden =
-    data.curtoCircuito.suportabilidadePainelDisponivel !== 'nao';
   card.querySelector('.support-breaker-photo-field').hidden =
     data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'sim';
   card.querySelector('.support-breaker-photo-field input[type="file"]').required =
     data.curtoCircuito.suportabilidadeDisjuntorDisponivel === 'sim';
-  card.querySelector('.support-breaker-justification').hidden =
-    data.curtoCircuito.suportabilidadeDisjuntorDisponivel !== 'nao';
+  card.querySelector('.other-panel-type-field').hidden = data.tipo !== 'Outros';
+  card.querySelector('.other-panel-type-input').required = data.tipo === 'Outros';
   const coordinationScope = currentSurvey.obra.escopoServico.includes('Coordenação e Seletividade');
   const intelligentScope = hasAdditionalScope('Ajustes dos Relés Inteligentes');
   const lowVoltageScope = hasAdditionalScope('Painéis de baixa tensão (QD/QDL/QL)') && isLowVoltagePanel(data.tipo);
@@ -1788,6 +2488,17 @@ function updatePanelConditions(card, data) {
   const energy = data.energiaIncidente;
   const arcFields = card.querySelector('.arc-relay-fields');
   if (arcFields) arcFields.hidden = energy.possuiReleArco !== 'sim';
+  const settingsPhoto = card.querySelector('.arc-settings-photo');
+  if (settingsPhoto) settingsPhoto.hidden = energy.backupReleArcoPossivel !== 'nao';
+  const additionalBreakerInfo = card.querySelector('.other-breaker-details');
+  if (additionalBreakerInfo) {
+    additionalBreakerInfo.hidden = data.curtoCircuito.possuiInformacaoAdicionalDisjuntores !== 'sim';
+  }
+  card.querySelectorAll('.protected-device-field').forEach(field => {
+    const feed = coordination[field.dataset.protectedArray]?.[Number(field.dataset.protectedIndex)]?.alimentacao;
+    field.hidden = feed !== 'Alimentador';
+    field.querySelector('input').required = feed === 'Alimentador';
+  });
 }
 
 function hasShortCircuitScope() {
@@ -1812,8 +2523,17 @@ function syncShortCircuitVisibility() {
   const visible = hasShortCircuitScope();
   substationList.querySelectorAll('.panel-card').forEach(card => {
     updatePanelConditions(card, getPanel(Number(card.dataset.seIndex), Number(card.dataset.panelIndex)).dadosPainel);
-    card.querySelector('.short-circuit-section').hidden = !visible;
+    card.querySelector('[data-module-key="short-circuit"]').hidden = !visible;
   });
+}
+
+function syncMotorPhotoExport(input) {
+  if (!input?.dataset.photoPath?.startsWith('curtoCircuito.motores.')) return;
+  const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  if (panel) {
+    panel.dadosPainel.fotos.fotos_placas_motores_mt =
+      panel.dadosPainel.curtoCircuito.motores.flatMap(motor => motor.fotos);
+  }
 }
 
 function getPhotoArray(input) {
@@ -1953,6 +2673,7 @@ async function handlePhotoInput(input) {
       showAlert(error.message || `Não foi possível adicionar a foto "${file.name}".`, true);
     }
   }
+  syncMotorPhotoExport(input);
   renderPhotoPreview(preview, photos);
   await persistCurrentSurvey();
 }
@@ -1991,13 +2712,6 @@ function resizeSubstations(count) {
   return substations;
 }
 
-function resizePanels(substation, count) {
-  const safeCount = Math.max(0, Math.min(MAX_PANELS_PER_SE, Number(count) || 0));
-  substation.paineis = substation.paineis.slice(0, safeCount);
-  while (substation.paineis.length < safeCount) substation.paineis.push(makePanel());
-  return safeCount;
-}
-
 function validateStepOne() {
   const numberInput = document.getElementById('obra-numero');
   const clientInput = document.getElementById('obra-cliente');
@@ -2015,9 +2729,10 @@ function validateStepOne() {
 function updatePanelField(input) {
   const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
   if (!panel) return;
+  const card = input.closest('.panel-card');
   const field = input.dataset.panelField;
   if (field === 'quantidadeColunas') {
-    const count = Math.max(0, Math.min(MAX_PANEL_COLUMNS, Math.trunc(Number(input.value) || 0)));
+    const count = Math.max(2, Math.min(MAX_PANEL_COLUMNS, Math.trunc(Number(input.value) || 2)));
     panel.dadosPainel.quantidadeColunas = count;
     panel.dadosPainel.fotos.fotos_colunas = resizeRecords(
       panel.dadosPainel.fotos.fotos_colunas,
@@ -2025,31 +2740,121 @@ function updatePanelField(input) {
       () => []
     );
     input.value = String(count);
-    renderPanelColumnPhotos(input.closest('.panel-card'), panel.dadosPainel,
+    renderPanelColumnPhotos(card, panel.dadosPainel,
       Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  } else if (field === 'configuracaoColunas') {
+    panel.dadosPainel.configuracaoColunas = input.value;
+    panel.dadosPainel.energiaIncidente.possuiCompartimentoUnico =
+      input.value === 'coluna_unica' ? 'sim' : 'nao';
+    if (input.value === 'coluna_unica') {
+      panel.dadosPainel.quantidadeColunas = 1;
+      panel.dadosPainel.fotos.fotos_colunas = [];
+    } else {
+      panel.dadosPainel.quantidadeColunas = Math.max(2, panel.dadosPainel.quantidadeColunas || 0);
+      panel.dadosPainel.fotos.fotos_colunas = resizeRecords(
+        panel.dadosPainel.fotos.fotos_colunas,
+        panel.dadosPainel.quantidadeColunas,
+        () => []
+      );
+    }
   } else {
     panel.dadosPainel[field] = input.value;
   }
   if (field === 'nome') {
-    const card = input.closest('.panel-card');
     card.querySelector('.panel-title').textContent = input.value || `Painel ${String(Number(input.dataset.panelIndex) + 1).padStart(2, '0')}`;
     card.querySelector('[data-panel-photo-label="identificacao"]').textContent =
       `＋ Tirar foto de identificação de ${input.value || 'painel'}`;
     card.querySelector('[data-panel-photo-label="completo"]').textContent =
       `＋ Tirar foto completa de ${input.value || 'painel'}`;
   }
-  if (field === 'nivelTensao') input.closest('.panel-card').querySelector('.other-voltage-field').hidden = input.value !== 'Outro';
-  updatePanelConditions(input.closest('.panel-card'), panel.dadosPainel);
+  if (field === 'nivelTensao') card.querySelector('.other-voltage-field').hidden = input.value !== 'Outro';
+  if (field === 'tipo') card.querySelector('.other-panel-type-field').hidden = input.value !== 'Outros';
+  if (field === 'configuracaoColunas' || field === 'quantidadeColunas') {
+    renderPanelConfigurationFields(card, panel.dadosPainel,
+      Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+    renderPanelColumnPhotos(card, panel.dadosPainel,
+      Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+    if (field === 'configuracaoColunas') {
+      renderIncidentEnergyFields(card, panel.dadosPainel,
+        Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+    }
+  }
+  updatePanelConditions(card, panel.dadosPainel);
   scheduleSave();
 }
 
 function updateShortCircuitField(input) {
   const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
   if (!panel) return;
-  panel.dadosPainel.curtoCircuito[input.dataset.shortField] = input.type === 'checkbox'
+  const short = panel.dadosPainel.curtoCircuito;
+  short[input.dataset.shortField] = input.type === 'checkbox'
     ? input.checked
     : input.value;
-  updatePanelConditions(input.closest('.panel-card'), panel.dadosPainel);
+  if (input.dataset.shortField === 'possuiMotoresMT' && input.value !== 'sim') {
+    short.motores = [];
+    short.quantidadeMotoresMT = 0;
+    panel.dadosPainel.fotos.fotos_placas_motores_mt = [];
+  }
+  const card = input.closest('.panel-card');
+  if (input.dataset.shortField === 'possuiMotoresMT') {
+    renderMotorFields(card.querySelector('.motor-fields'), short,
+      Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  }
+  updatePanelConditions(card, panel.dadosPainel);
+  scheduleSave();
+}
+
+function updateMotorCount(input) {
+  const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  if (!panel) return;
+  const short = panel.dadosPainel.curtoCircuito;
+  const requested = Math.max(1, Math.min(
+    MAX_PROTECTION_DEVICES_PER_PANEL,
+    Math.trunc(Number(input.value) || 1)
+  ));
+  short.motores = resizeRecords(short.motores, requested, () => ({
+    nome: '',
+    placaAcessivel: null,
+    fotos: []
+  }));
+  short.quantidadeMotoresMT = requested;
+  panel.dadosPainel.fotos.fotos_placas_motores_mt = short.motores.flatMap(motor => motor.fotos);
+  const card = input.closest('.panel-card');
+  renderMotorFields(card.querySelector('.motor-fields'), short,
+    Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  updatePanelConditions(card, panel.dadosPainel);
+  scheduleSave();
+}
+
+function updateMotorField(input) {
+  const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  const motor = panel?.dadosPainel.curtoCircuito.motores[Number(input.dataset.motorIndex)];
+  if (!motor) return;
+  motor[input.dataset.motorField] = input.value;
+  const item = input.closest('.motor-item');
+  if (input.dataset.motorField === 'nome') {
+    const label = item.querySelector('.motor-plate-photo-field .form-label');
+    if (label) label.textContent = `Foto da placa do motor ${input.value.trim() || Number(input.dataset.motorIndex) + 1}`;
+    const button = item.querySelector('.motor-plate-photo-field .photo-button span');
+    if (button) button.textContent = `＋ Foto da placa do motor ${input.value.trim() || Number(input.dataset.motorIndex) + 1}`;
+  }
+  scheduleSave();
+}
+
+function updateMotorPlateAccess(input) {
+  const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  const short = panel?.dadosPainel.curtoCircuito;
+  const motor = short?.motores[Number(input.dataset.motorIndex)];
+  if (!panel || !short || !motor) return;
+  motor.placaAcessivel = input.value;
+  if (input.value !== 'sim') motor.fotos = [];
+  panel.dadosPainel.fotos.fotos_placas_motores_mt = short.motores.flatMap(item => item.fotos);
+  const item = input.closest('.motor-item');
+  item.querySelector('.motor-plate-photo-field').hidden = input.value !== 'sim';
+  renderPhotoPreview(
+    item.querySelector('.motor-plate-photo-field .photo-preview'),
+    motor.fotos
+  );
   scheduleSave();
 }
 
@@ -2066,10 +2871,58 @@ function updatePanelExtraField(input) {
   }
   const card = input.closest('.panel-card');
   if (input.dataset.extraSection === 'energiaIncidente'
+      && input.dataset.panelExtraField === 'backupReleArcoPossivel') {
+    section.ajustesReleArcoObtidos = input.value;
+  } else if (input.dataset.extraSection === 'energiaIncidente'
       && input.dataset.panelExtraField === 'possuiCompartimentoUnico') {
-    renderIncidentEnergyFields(card, panel.dadosPainel, Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+    // Keep the legacy export field synchronized with the panel configuration.
+    section.possuiCompartimentoUnico = input.value;
   }
   updatePanelConditions(card, panel.dadosPainel);
+  scheduleSave();
+}
+
+function updateCableField(input) {
+  const panel = getPanel(Number(input.dataset.seIndex), Number(input.dataset.panelIndex));
+  if (!panel) return;
+  const short = panel.dadosPainel.curtoCircuito;
+  const index = Number(input.dataset.cableIndex);
+  while (short.cabos.length <= index) {
+    short.cabos.push({ finalidade: '', distancia: '', bitola: '', quantidadePorFase: '' });
+  }
+  short.cabos[index][input.dataset.cableField] = input.value;
+  if (index === 0) {
+    short.distanciaCabos = short.cabos[0].distancia;
+    short.bitolaCabos = short.cabos[0].bitola;
+    short.quantidadeCabos = short.cabos[0].quantidadePorFase;
+  }
+  scheduleSave();
+}
+
+function updateFinalObservationField(input) {
+  const seIndex = Number(input.dataset.seIndex);
+  const substation = currentSurvey.subestacoes[seIndex];
+  if (!substation) return;
+  const state = input.dataset.finalOwner === 'se'
+    ? substation
+    : getPanel(seIndex, Number(input.dataset.panelIndex))?.dadosPainel.observacoesFinais;
+  if (!state) return;
+  state[input.dataset.finalObservationField] = input.value;
+  if (input.dataset.finalObservationField === 'observacaoAdicional') {
+    if (input.dataset.finalOwner === 'se') substation.observacoes = input.value;
+    else getPanel(seIndex, Number(input.dataset.panelIndex)).dadosPainel.observacoes = input.value;
+  }
+  const container = input.closest(input.dataset.finalOwner === 'se'
+    ? '.se-observation-fields'
+    : '.panel-observation-fields');
+  if (container) {
+    const missing = container.querySelector('.missing-info-field');
+    const additional = container.querySelector('.additional-observation-field');
+    if (missing) missing.hidden = state.informacoesColetadas !== 'nao';
+    if (additional) additional.hidden = state.possuiObservacaoAdicional !== 'sim';
+    const photo = container.querySelector('.final-observation-photo');
+    if (photo) photo.hidden = state.possuiObservacaoAdicional !== 'sim';
+  }
   scheduleSave();
 }
 
@@ -2181,18 +3034,14 @@ function validatePanelRequirements({
             answerField: 'suportabilidadePainelDisponivel',
             answer: data.curtoCircuito.suportabilidadePainelDisponivel,
             photos: data.fotos.foto_suportabilidades,
-            justification: data.curtoCircuito.justificativaSuportabilidadePainel,
             photoSelector: '.support-panel-photo-field',
-            justificationSelector: '.support-panel-justification textarea',
             subject: 'do painel'
           },
           {
             answerField: 'suportabilidadeDisjuntorDisponivel',
             answer: data.curtoCircuito.suportabilidadeDisjuntorDisponivel,
             photos: data.fotos.foto_suportabilidade_disjuntor,
-            justification: data.curtoCircuito.justificativaSuportabilidadeDisjuntor,
             photoSelector: '.support-breaker-photo-field',
-            justificationSelector: '.support-breaker-justification textarea',
             subject: 'do disjuntor de entrada'
           }
         ];
@@ -2209,14 +3058,17 @@ function validatePanelRequirements({
               panelCard.querySelector(requirement.photoSelector),
               `A foto da suportabilidade ${requirement.subject} é obrigatória em "${data.nome || `Painel ${panelIndex + 1}`}".`);
           }
-          if (requirement.answer === 'nao' && !requirement.justification.trim()) {
-            return focusPanelRequirement(seIndex, panelIndex,
-              panelCard.querySelector(requirement.justificationSelector),
-              `Por que não foi possível obter as suportabilidades ${requirement.subject}.`);
-          }
         }
       }
       if (scopes.includes('Coordenação e Seletividade')) {
+        const findCoordinationInput = (field, recordArray, recordIndex) =>
+          substationList.querySelector(
+            `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-panel-extra-field="${field}"][data-extra-record-array="${recordArray}"][data-extra-record-index="${recordIndex}"]`
+          );
+        const findCoordinationText = (field, recordArray, recordIndex) =>
+          substationList.querySelector(
+            `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-panel-extra-text="${field}"][data-extra-record-array="${recordArray}"][data-extra-record-index="${recordIndex}"]`
+          );
         const findRadio = (field, recordArray, recordIndex) => {
           let selector = `[data-panel-extra-field="${field}"][data-extra-section="coordenacaoSeletividade"]`;
           if (recordArray) selector += `[data-extra-record-array="${recordArray}"][data-extra-record-index="${recordIndex}"]`;
@@ -2225,13 +3077,17 @@ function validatePanelRequirements({
           );
         };
         for (const [index, relay] of coordination.relesProtecao.entries()) {
-          if (!relay.cubiculo.trim() || !relay.alimentacao.trim()) {
-            const field = !relay.cubiculo.trim() ? 'cubiculo' : 'alimentacao';
-            const input = substationList.querySelector(
-              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-panel-extra-text="${field}"][data-extra-record-array="relesProtecao"][data-extra-record-index="${index}"]`
-            );
+          if (!String(relay.cubiculo).trim() || !relay.alimentacao) {
+            const input = !String(relay.cubiculo).trim()
+              ? findCoordinationText('cubiculo', 'relesProtecao', index)
+              : findCoordinationInput('alimentacao', 'relesProtecao', index);
             return focusPanelRequirement(seIndex, panelIndex, input,
-              `Preencha o cubículo e a entrada/saída do relé de proteção ${index + 1}.`);
+              `Informe o número do cubículo e se o relé de proteção ${index + 1} está na Entrada ou em um Alimentador.`);
+          }
+          if (relay.alimentacao === 'Alimentador' && !relay.equipamentoProtegido.trim()) {
+            return focusPanelRequirement(seIndex, panelIndex,
+              findCoordinationText('equipamentoProtegido', 'relesProtecao', index),
+              `Informe qual equipamento/circuito o relé ${index + 1} protege.`);
           }
           if (!relay.backupObtido) {
             return focusPanelRequirement(seIndex, panelIndex, findRadio('backupObtido', 'relesProtecao', index)?.closest('fieldset'),
@@ -2249,13 +3105,17 @@ function validatePanelRequirements({
           }
         }
         for (const [index, breaker] of coordination.disjuntoresLSIG.entries()) {
-          if (!breaker.cubiculo.trim() || !breaker.alimentacao.trim()) {
-            const field = !breaker.cubiculo.trim() ? 'cubiculo' : 'alimentacao';
-            const input = substationList.querySelector(
-              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-panel-extra-text="${field}"][data-extra-record-array="disjuntoresLSIG"][data-extra-record-index="${index}"]`
-            );
+          if (!String(breaker.cubiculo).trim() || !breaker.alimentacao) {
+            const input = !String(breaker.cubiculo).trim()
+              ? findCoordinationText('cubiculo', 'disjuntoresLSIG', index)
+              : findCoordinationInput('alimentacao', 'disjuntoresLSIG', index);
             return focusPanelRequirement(seIndex, panelIndex, input,
-              `Preencha o cubículo e a entrada/saída do disjuntor LSIG ${index + 1}.`);
+              `Informe o número do cubículo e se o disjuntor LSIG ${index + 1} está na Entrada ou em um Alimentador.`);
+          }
+          if (breaker.alimentacao === 'Alimentador' && !breaker.equipamentoProtegido.trim()) {
+            return focusPanelRequirement(seIndex, panelIndex,
+              findCoordinationText('equipamentoProtegido', 'disjuntoresLSIG', index),
+              `Informe qual equipamento/circuito o disjuntor LSIG ${index + 1} protege.`);
           }
           const photoPath = `coordenacaoSeletividade.disjuntoresLSIG.${index}.fotosAjustes`;
           const photoInput = substationList.querySelector(
@@ -2318,30 +3178,21 @@ function validatePanelRequirements({
             'Informe se o painel possui relé de arco.');
         }
         if (incident.possuiReleArco === 'sim') {
-          const arcPhoto = substationList.querySelector(
-            `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-photo-path="energiaIncidente.fotosReleArco"]`
-          );
-          if (!incident.fotosReleArco.length) {
-            return focusPanelRequirement(seIndex, panelIndex, arcPhoto?.closest('.photo-field'),
-              'A foto do relé de arco é obrigatória.');
+          if (!incident.backupReleArcoPossivel) {
+            return focusPanelRequirement(seIndex, panelIndex,
+              findEnergyRadio('backupReleArcoPossivel')?.closest('fieldset'),
+              'Informe se é possível realizar o backup do arquivo do relé de arco.');
+          }
+          if (incident.backupReleArcoPossivel === 'nao' && !incident.fotosReleArco.length) {
+            const settingsPhoto = substationList.querySelector(
+              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-photo-path="energiaIncidente.fotosReleArco"]`
+            );
+            return focusPanelRequirement(seIndex, panelIndex, settingsPhoto?.closest('.photo-field'),
+              'A foto dos ajustes implantados do relé de arco é obrigatória.');
           }
           if (!incident.releArcoTrip) {
             return focusPanelRequirement(seIndex, panelIndex, findEnergyRadio('releArcoTrip')?.closest('fieldset'),
-              'Informe se o relé de arco enviou TRIP local ou a montante.');
-          }
-        }
-        if (!incident.possuiCompartimentoUnico) {
-          return focusPanelRequirement(seIndex, panelIndex, findEnergyRadio('possuiCompartimentoUnico')?.closest('fieldset'),
-            'Informe se o painel possui um único compartimento.');
-        }
-        const names = incident.possuiCompartimentoUnico === 'sim' ? ['entrada'] : ['entrada', 'menor'];
-        for (const name of names) {
-          if (!incident.compartimentos[name].disjuntorExtraivel) {
-            const input = substationList.querySelector(
-              `.substation-card[data-se-index="${seIndex}"] .panel-card[data-panel-index="${panelIndex}"] [data-panel-extra-field="disjuntorExtraivel"][data-extra-record-array="compartimentos"][data-extra-record-index="${name}"]`
-            );
-            return focusPanelRequirement(seIndex, panelIndex, input?.closest('fieldset'),
-              `Informe se o disjuntor do compartimento ${name === 'entrada' ? 'de entrada' : 'menor'} é extraível.`);
+              'Informe se o relé de arco envia trip a montante (transfer trip).');
           }
         }
       }
@@ -2399,6 +3250,9 @@ document.getElementById('add-se-button').addEventListener('click', async () => {
 });
 
 document.getElementById('finish-survey-button').addEventListener('click', async () => {
+  for (const card of substationList.querySelectorAll('.substation-card')) {
+    if (!validateSaveContainer(card)) return;
+  }
   if (!validatePanelRequirements()) return;
   const emptyPanel = substationList.querySelector('.panel-name-input:invalid');
   if (emptyPanel) {
@@ -2417,14 +3271,18 @@ document.getElementById('finish-survey-button').addEventListener('click', async 
 serviceForm.addEventListener('input', event => {
   const input = event.target;
   if (input.matches('[data-service-field]:not([data-service-field="quantidadeSEs"])')) updateServiceField(input);
-  else if (input.matches('[data-se-field="nome"], [data-se-field="observacoes"]')) {
+  else if (input.matches('[data-se-field="nome"]')) {
     const se = currentSurvey.subestacoes[Number(input.dataset.seIndex)];
     if (se) {
       se[input.dataset.seField] = input.value;
       if (input.dataset.seField === 'nome') input.closest('.substation-card').querySelector('.substation-title').textContent = input.value || `SE ${Number(input.dataset.seIndex) + 1}`;
       scheduleSave();
     }
-  } else if (input.matches('[data-panel-field]')) updatePanelField(input);
+  } else if (input.matches('[data-final-observation-field]:not([type="radio"])')) {
+    updateFinalObservationField(input);
+  } else if (input.matches('[data-cable-field]')) updateCableField(input);
+  else if (input.matches('[data-motor-field]:not([type="radio"])')) updateMotorField(input);
+  else if (input.matches('[data-panel-field]')) updatePanelField(input);
   else if (input.matches('[data-short-field]') && input.type !== 'radio') updateShortCircuitField(input);
   else if (input.matches('[data-transformer-field]') && input.type !== 'radio') {
     const transformer = currentSurvey.subestacoes[Number(input.dataset.seIndex)]?.transformadores[Number(input.dataset.transformerIndex)];
@@ -2434,7 +3292,7 @@ serviceForm.addEventListener('input', event => {
         const item = input.closest('.transformer-item');
         const displayName = input.value.trim() || `Trafo ${Number(input.dataset.transformerIndex) + 1}`;
         const photoButton = item.querySelector('[data-transformer-photo-label]');
-        if (photoButton) photoButton.textContent = `＋ Tirar foto de ${displayName}`;
+        if (photoButton) photoButton.textContent = `＋ Foto do Trafo ${displayName}`;
         item.querySelectorAll('.form-label').forEach(label => {
           if (/^Transformador /.test(label.textContent)) label.textContent = `Transformador ${displayName}`;
           else if (/^Placa do transformador/.test(label.textContent)) {
@@ -2510,8 +3368,10 @@ serviceForm.addEventListener('change', async event => {
       while (se.transformadores.length < count) {
         se.transformadores.push({
           nome: '',
+          placaAcessivel: null,
+          possuiAterramentoEnrolamento: null,
           aterramentoPorResistor: null,
-          correnteResistor: '',
+          placaResistorAcessivel: null,
           fotos: { transformador: [], placa: [], resistorPlaca: [], resistorPainel: [] }
         });
       }
@@ -2519,25 +3379,34 @@ serviceForm.addEventListener('change', async event => {
       renderSubstations();
       scheduleSave();
     }
-  } else if (input.matches('[data-panel-extra-count]')) updatePanelExtraCount(input);
+  } else if (input.matches('[data-cable-field]')) updateCableField(input);
+  else if (input.matches('[data-motor-count]')) updateMotorCount(input);
+  else if (input.matches('[data-motor-field][type="radio"]')) updateMotorPlateAccess(input);
+  else if (input.matches('[data-panel-extra-count]')) updatePanelExtraCount(input);
   else if (input.matches('[data-panel-extra-field]')) updatePanelExtraField(input);
-  else if (input.matches('[data-se-field="quantidadePaineis"]')) {
-    const se = currentSurvey.subestacoes[Number(input.dataset.seIndex)];
-    if (se) {
-      resizePanels(se, Number(input.value));
-      renderSubstations();
-      scheduleSave();
-    }
+  else if (input.matches('[data-final-observation-field][type="radio"]')) {
+    updateFinalObservationField(input);
   } else if (input.matches('[data-panel-field]')) updatePanelField(input);
   else if (input.matches('[data-short-field]')) updateShortCircuitField(input);
-  else if (input.matches('[data-transformer-field="aterramentoPorResistor"]')) {
+  else if (input.matches('[data-transformer-field][type="radio"]')) {
     const transformer = currentSurvey.subestacoes[Number(input.dataset.seIndex)]
       ?.transformadores[Number(input.dataset.transformerIndex)];
     if (transformer) {
-      transformer.aterramentoPorResistor = input.value;
+      transformer[input.dataset.transformerField] = input.value;
+      if (input.dataset.transformerField === 'possuiAterramentoEnrolamento' && input.value !== 'sim') {
+        transformer.aterramentoPorResistor = null;
+        transformer.placaResistorAcessivel = null;
+      } else if (input.dataset.transformerField === 'aterramentoPorResistor' && input.value !== 'sim') {
+        transformer.placaResistorAcessivel = null;
+      }
       const item = input.closest('.transformer-item');
-      item.querySelectorAll('.transformer-resistor-details').forEach(details => {
-        details.hidden = input.value !== 'sim';
+      item.querySelector('.transformer-plate-photos').hidden = transformer.placaAcessivel !== 'sim';
+      item.querySelector('.grounding-details').hidden =
+        transformer.possuiAterramentoEnrolamento !== 'sim';
+      item.querySelector('.resistor-details').hidden = transformer.aterramentoPorResistor !== 'sim';
+      item.querySelector('.resistor-plate-photos').hidden = transformer.placaResistorAcessivel !== 'sim';
+      item.querySelectorAll('[data-transformer-field]').forEach(answer => {
+        answer.checked = answer.value === transformer[answer.dataset.transformerField];
       });
       scheduleSave();
     }
@@ -2632,6 +3501,30 @@ async function salvarSE(saveButton) {
 
 substationList.addEventListener('click', async event => {
   const target = event.target;
+  const addCable = target.closest('.add-cable-button');
+  if (addCable) {
+    const panel = getPanel(Number(addCable.dataset.seIndex), Number(addCable.dataset.panelIndex));
+    if (!panel) return;
+    const cables = panel.dadosPainel.curtoCircuito.cabos;
+    if (cables.length >= MAX_PROTECTION_DEVICES_PER_PANEL) {
+      showAlert(`O limite é de ${MAX_PROTECTION_DEVICES_PER_PANEL} registros de cabo por painel.`, true);
+      return;
+    }
+    if (!cables.length) cables.push({
+      tipo: '',
+      distancia: '',
+      bitola: '',
+      quantidadePorFase: ''
+    });
+    cables.push({ tipo: '', distancia: '', bitola: '', quantidadePorFase: '' });
+    const card = addCable.closest('.panel-card');
+    const cableFields = card.querySelector('.cable-information-fields');
+    cableFields.querySelectorAll('.cable-list, .add-cable-button').forEach(element => element.remove());
+    renderCableInformation(cableFields,
+      panel.dadosPainel.curtoCircuito, Number(addCable.dataset.seIndex), Number(addCable.dataset.panelIndex));
+    await persistCurrentSurvey();
+    return;
+  }
   const savePanel = target.closest('.save-panel-button');
   if (savePanel) {
     await salvarPainel(savePanel);
@@ -2695,6 +3588,36 @@ substationList.addEventListener('click', async event => {
 });
 
 document.getElementById('saved-surveys').addEventListener('click', async event => {
+  const cloudButton = event.target.closest('[data-upload-survey], [data-share-survey]');
+  if (cloudButton) {
+    const surveyId = cloudButton.dataset.uploadSurvey || cloudButton.dataset.shareSurvey;
+    const survey = savedSurveys.find(item => item.id === surveyId);
+    if (!survey) return;
+    const originalLabel = cloudButton.textContent;
+    cloudButton.disabled = true;
+    cloudButton.textContent = cloudButton.hasAttribute('data-upload-survey')
+      ? 'Enviando...'
+      : 'Preparando ZIP...';
+    try {
+      if (cloudButton.hasAttribute('data-upload-survey')) {
+        const accessToken = await getGraphAccessToken();
+        const { archive } = await gerarZipCompleto(survey);
+        await createUploadSession(survey, archive, accessToken);
+        showAlert('Levantamento enviado ao OneDrive.');
+      } else {
+        await shareSurveyZip(survey);
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Não foi possível concluir o upload ou compartilhamento.', error);
+      showAlert(error.message || 'Não foi possível concluir a operação.', true);
+    } finally {
+      cloudButton.disabled = false;
+      cloudButton.textContent = originalLabel;
+    }
+    return;
+  }
+
   const exportButton = event.target.closest('[data-export-survey]');
   if (exportButton) {
     const survey = savedSurveys.find(item => item.id === exportButton.dataset.exportSurvey);
