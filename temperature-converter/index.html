@@ -10,7 +10,6 @@
     <link rel="manifest" href="./manifest.json">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="./converter.css">
-    <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
     <title>Levantamento de Campo</title>
@@ -113,8 +112,8 @@
                 <fieldset class="mt-4">
                   <legend class="form-section-title">Outros itens do escopo do serviço</legend>
                   <div class="scope-grid">
-                    <label class="scope-option"><input id="escopo-reles-inteligentes" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Ajustes dos Relés Inteligentes" data-additional-scope><span>Ajustes dos Relés Inteligentes</span></label>
-                    <label class="scope-option"><input id="escopo-paineis-baixa-tensao" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Painéis de baixa tensão (QD/QDL/QL)" data-additional-scope><span>Painéis de baixa tensão (QD/QDL/QL)</span></label>
+                    <label class="scope-option text-muted"><input id="escopo-reles-inteligentes" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Ajustes dos Relés Inteligentes" data-additional-scope disabled><span>Ajustes dos Relés Inteligentes <small class="text-muted">(Em etapa de desenvolvimento)</small></span></label>
+                    <label class="scope-option text-muted"><input id="escopo-paineis-baixa-tensao" class="form-check-input" type="checkbox" name="outrosItensEscopo" value="Painéis de baixa tensão (QD/QDL/QL)" data-additional-scope disabled><span>Painéis de baixa tensão (QD/QDL/QL) <small class="text-muted">(Em etapa de desenvolvimento)</small></span></label>
                   </div>
                 </fieldset>
 
