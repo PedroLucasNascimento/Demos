@@ -1031,7 +1031,7 @@ async function exportarZipCompleto(survey) {
 const msalConfig = {
   auth: {
     clientId: '748cbb73-1db2-488a-af7c-9a11fe8fbc6b',
-    authority: 'https://login.microsoftonline.com/common',
+    authority: 'https://login.microsoftonline.com/4f7cc68e-46e3-4398-aeac-6e8089484e7e',
     redirectUri: `${window.location.origin}${window.location.pathname}`
   },
   cache: {
