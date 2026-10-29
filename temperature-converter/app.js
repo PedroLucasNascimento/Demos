@@ -1030,7 +1030,7 @@ async function exportarZipCompleto(survey) {
 
 const msalConfig = {
   auth: {
-    clientId: '[INSIRA_SEU_CLIENT_ID_AQUI]',
+    clientId: '748cbb73-1db2-488a-af7c-9a11fe8fbc6b',
     authority: 'https://login.microsoftonline.com/common',
     redirectUri: `${window.location.origin}${window.location.pathname}`
   },
@@ -1045,9 +1045,6 @@ let msalApplication;
 function getMsalApplication() {
   if (!window.msal?.PublicClientApplication) {
     throw new Error('A biblioteca de autenticação Microsoft não foi carregada. Verifique a conexão e tente novamente.');
-  }
-  if (msalConfig.auth.clientId === '[INSIRA_SEU_CLIENT_ID_AQUI]') {
-    throw new Error('Configure o Client ID do aplicativo no Microsoft Entra antes de enviar ao OneDrive.');
   }
   msalApplication ||= new window.msal.PublicClientApplication(msalConfig);
   return msalApplication;
@@ -1164,18 +1161,27 @@ async function createUploadSession(survey, archiveBlob, accessToken = null) {
 }
 
 async function shareSurveyZip(survey) {
-  if (!navigator.share || !navigator.canShare) {
-    throw new Error('O compartilhamento de arquivos não é compatível com este navegador.');
-  }
   const { archive } = await gerarZipCompleto(survey);
   const arquivoZip = new File([archive], 'Levantamento.zip', { type: 'application/zip' });
-  if (!navigator.canShare({ files: [arquivoZip] })) {
-    throw new Error('Este dispositivo não permite compartilhar arquivos ZIP pelo menu nativo.');
+  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [arquivoZip] })) {
+    downloadBlob(archive, arquivoZip.name);
+    showAlert('Este navegador não oferece compartilhamento nativo de arquivos. O ZIP foi baixado para você compartilhar manualmente.');
+    return;
   }
-  await navigator.share({
-    files: [arquivoZip],
-    title: 'Levantamento de Campo'
-  });
+  try {
+    await navigator.share({
+      files: [arquivoZip],
+      title: 'Levantamento de Campo'
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+      downloadBlob(archive, arquivoZip.name);
+      showAlert('O navegador bloqueou o compartilhamento nativo. O ZIP foi baixado para você compartilhar manualmente.');
+      return;
+    }
+    throw error;
+  }
 }
 
 function renderHome() {
