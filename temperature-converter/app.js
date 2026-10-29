@@ -1118,7 +1118,7 @@ async function ensureOneDriveFolder(accessToken, parentId, folderName, pathParts
 }
 
 // Uploads the generated ZIP in Graph-compatible, sequential byte ranges.
-async function createUploadSession(survey, archiveBlob, accessToken = null) {
+async function uploadParaOneDrive(survey, archiveBlob, accessToken = null) {
   accessToken ||= await getGraphAccessToken();
   const projectFolder = safeArchiveName(survey.obra.numero || survey.obra.nomeServico);
   const rootFolder = await ensureOneDriveFolder(accessToken, 'root', 'Levantamentos_PWA', ['Levantamentos_PWA']);
@@ -1139,8 +1139,8 @@ async function createUploadSession(survey, archiveBlob, accessToken = null) {
       },
       body: JSON.stringify({
         item: {
-          name: fileName,
-          '@microsoft.graph.conflictBehavior': 'replace'
+          '@microsoft.graph.conflictBehavior': 'rename',
+          name: 'Pacote_Levantamento.zip'
         }
       })
     }
@@ -1149,12 +1149,17 @@ async function createUploadSession(survey, archiveBlob, accessToken = null) {
   const { uploadUrl } = await sessionResponse.json();
   if (!uploadUrl) throw new Error('O Microsoft Graph não retornou a URL da sessão de upload.');
 
-  for (let start = 0; start < archiveBlob.size; start += ONEDRIVE_CHUNK_SIZE) {
-    const end = Math.min(start + ONEDRIVE_CHUNK_SIZE, archiveBlob.size);
+  const totalSize = archiveBlob.size;
+  for (let start = 0; start < totalSize; start += ONEDRIVE_CHUNK_SIZE) {
+    const end = Math.min(start + ONEDRIVE_CHUNK_SIZE, totalSize);
+    const chunk = archiveBlob.slice(start, end);
     const response = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: { 'Content-Range': `bytes ${start}-${end - 1}/${archiveBlob.size}` },
-      body: archiveBlob.slice(start, end)
+      headers: {
+        'Content-Length': String(chunk.size),
+        'Content-Range': `bytes ${start}-${end - 1}/${totalSize}`
+      },
+      body: chunk
     });
     if (!response.ok) throw await graphError(response, 'Falha ao enviar um bloco do arquivo ao OneDrive');
   }
@@ -3608,7 +3613,7 @@ document.getElementById('saved-surveys').addEventListener('click', async event =
       if (cloudButton.hasAttribute('data-upload-survey')) {
         const accessToken = await getGraphAccessToken();
         const { archive } = await gerarZipCompleto(survey);
-        await createUploadSession(survey, archive, accessToken);
+        await uploadParaOneDrive(survey, archive, accessToken);
         showAlert('Levantamento enviado ao OneDrive.');
       } else {
         await shareSurveyZip(survey);
